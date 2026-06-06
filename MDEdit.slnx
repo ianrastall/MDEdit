@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MDEdit.Core/MDEdit.Core.csproj" />
+    <Project Path="src/MDEdit.Application/MDEdit.Application.csproj" />
+    <Project Path="src/MDEdit.Infrastructure/MDEdit.Infrastructure.csproj" />
+    <Project Path="src/MDEdit.WinUI/MDEdit.WinUI.csproj">
+      <Platform Project="x64" />
+    </Project>
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MDEdit.Tests/MDEdit.Tests.csproj" />
+  </Folder>
+</Solution>
