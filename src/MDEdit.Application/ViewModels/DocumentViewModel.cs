@@ -10,8 +10,10 @@ namespace MDEdit.Application.ViewModels;
 public partial class DocumentViewModel : ObservableObject
 {
     private const string Crlf = "\r\n";
+    private const int HeadingParseDebounceMilliseconds = 400;
     private readonly IMarkdownFormattingService _formatter;
     private bool _normalizingRawMarkdown;
+    private CancellationTokenSource? _headingParseDebounceCts;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DocumentTitle))]
@@ -154,11 +156,23 @@ public partial class DocumentViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Format()
+    private async Task FormatAsync()
     {
-        string formatted = _formatter.Format(RawMarkdown, Flavor);
+        string raw = RawMarkdown;
+        MarkdownFlavor flavor = Flavor;
+        string formatted;
 
-        if (LooksSuspiciouslyCollapsed(RawMarkdown, formatted))
+        try
+        {
+            formatted = await Task.Run(() => _formatter.Format(raw, flavor));
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Format failed: {ex.Message}";
+            return;
+        }
+
+        if (LooksSuspiciouslyCollapsed(raw, formatted))
         {
             StatusMessage = "Format skipped: output looked collapsed.";
             return;
@@ -169,12 +183,24 @@ public partial class DocumentViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Reflow()
+    private async Task ReflowAsync()
     {
-        MarkdownReflowResult result =
-            _formatter.ReflowHeadings(RawMarkdown, Flavor, ReflowTopHeadingLevel.Level);
+        string raw = RawMarkdown;
+        MarkdownFlavor flavor = Flavor;
+        int topHeadingLevel = ReflowTopHeadingLevel.Level;
+        MarkdownReflowResult result;
 
-        if (LooksSuspiciouslyCollapsed(RawMarkdown, result.Markdown))
+        try
+        {
+            result = await Task.Run(() => _formatter.ReflowHeadings(raw, flavor, topHeadingLevel));
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Reflow failed: {ex.Message}";
+            return;
+        }
+
+        if (LooksSuspiciouslyCollapsed(raw, result.Markdown))
         {
             StatusMessage = "Reflow skipped: output looked collapsed.";
             return;
@@ -214,7 +240,7 @@ public partial class DocumentViewModel : ObservableObject
         };
 
         IsDirty = true;
-        ParseHeadings(value);
+        QueueHeadingParse(value);
     }
 
     partial void OnFlavorChanged(MarkdownFlavor value)
@@ -237,7 +263,44 @@ public partial class DocumentViewModel : ObservableObject
         OnPropertyChanged(nameof(LineCount));
         OnPropertyChanged(nameof(LineEndingStatusText));
         OnPropertyChanged(nameof(DocumentStatisticsText));
-        ParseHeadings(RawMarkdown);
+        ParseHeadingsImmediately(RawMarkdown);
+    }
+
+    private void QueueHeadingParse(string markdown)
+    {
+        _headingParseDebounceCts?.Cancel();
+
+        var cts = new CancellationTokenSource();
+        _headingParseDebounceCts = cts;
+        _ = DebounceParseHeadingsAsync(markdown, cts);
+    }
+
+    private async Task DebounceParseHeadingsAsync(string markdown, CancellationTokenSource cts)
+    {
+        try
+        {
+            await Task.Delay(HeadingParseDebounceMilliseconds, cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+            ParseHeadings(markdown);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(_headingParseDebounceCts, cts))
+            {
+                _headingParseDebounceCts = null;
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    private void ParseHeadingsImmediately(string markdown)
+    {
+        _headingParseDebounceCts?.Cancel();
+        ParseHeadings(markdown);
     }
 
     private string BuildReflowStatus(MarkdownReflowResult result)

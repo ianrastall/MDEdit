@@ -53,6 +53,10 @@ public sealed class EditorWorkflowTests
             ## Peer
             """);
 
+        Assert.True(
+            SpinWait.SpinUntil(() => document.HeadingNodes.Count > 0, TimeSpan.FromSeconds(1)),
+            "Heading parse did not complete.");
+
         HeadingNode root = Assert.Single(document.HeadingNodes);
         Assert.Equal("Root", root.Title);
         Assert.Equal(2, root.Children.Count);
@@ -61,12 +65,33 @@ public sealed class EditorWorkflowTests
     }
 
     [Fact]
+    public async Task ExitCommand_PromptsWhenTabsAreDirty()
+    {
+        var application = new FakeApplicationService();
+        var prompt = new FakeUnsavedChangesPromptService(shouldConfirm: false);
+        var shell = new ShellViewModel(
+            new DocumentServiceProvider(),
+            new FakeFilePickerService(),
+            application,
+            prompt);
+
+        shell.ActiveTab!.SetMarkdownFromEditor("# Dirty");
+
+        await shell.ExitCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, prompt.PromptCount);
+        Assert.False(application.DidExit);
+        Assert.Contains("unsaved changes remain", shell.ActiveTab.StatusMessage);
+    }
+
+    [Fact]
     public void CloseAllSaved_LeavesDirtyTabsOpen()
     {
         var shell = new ShellViewModel(
             new DocumentServiceProvider(),
             new FakeFilePickerService(),
-            new FakeApplicationService());
+            new FakeApplicationService(),
+            new FakeUnsavedChangesPromptService(shouldConfirm: true));
 
         DocumentViewModel firstSaved = shell.ActiveTab!;
         firstSaved.Load("first.md", "# First");
@@ -120,8 +145,22 @@ public sealed class EditorWorkflowTests
 
     private sealed class FakeApplicationService : IApplicationService
     {
+        public bool DidExit { get; private set; }
+
         public void Exit()
         {
+            DidExit = true;
+        }
+    }
+
+    private sealed class FakeUnsavedChangesPromptService(bool shouldConfirm) : IUnsavedChangesPromptService
+    {
+        public int PromptCount { get; private set; }
+
+        public Task<bool> ConfirmDiscardUnsavedChangesAsync(int unsavedDocumentCount)
+        {
+            PromptCount++;
+            return Task.FromResult(shouldConfirm);
         }
     }
 }

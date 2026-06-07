@@ -13,6 +13,7 @@ namespace MDEdit.WinUI.Views;
 public sealed partial class ShellPage : Page
 {
     private readonly Dictionary<DocumentViewModel, TabViewItem> _tabItems = [];
+    private bool _isInsertDialogOpen;
     private bool _syncingSelection;
 
     public ShellViewModel ViewModel { get; }
@@ -245,28 +246,41 @@ public sealed partial class ShellPage : Page
 
     private async Task<string?> PromptForInsertContentAsync(string title)
     {
-        var textBox = new TextBox
+        if (_isInsertDialogOpen)
         {
-            AcceptsReturn = true,
-            MinHeight = 180,
-            TextWrapping = TextWrapping.Wrap,
-            PlaceholderText = "Enter Markdown to insert...",
-            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(
-                "Cascadia Code, Cascadia Mono, Consolas, Courier New"),
-        };
+            return null;
+        }
 
-        var dialog = new ContentDialog
+        _isInsertDialogOpen = true;
+        try
         {
-            Title = title,
-            Content = textBox,
-            PrimaryButtonText = "Insert",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = XamlRoot,
-        };
+            var textBox = new TextBox
+            {
+                AcceptsReturn = true,
+                MinHeight = 180,
+                TextWrapping = TextWrapping.Wrap,
+                PlaceholderText = "Enter Markdown to insert...",
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(
+                    "Cascadia Code, Cascadia Mono, Consolas, Courier New"),
+            };
 
-        return await dialog.ShowAsync() == ContentDialogResult.Primary
-            ? textBox.Text
-            : null;
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = textBox,
+                PrimaryButtonText = "Insert",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = XamlRoot,
+            };
+
+            return await dialog.ShowAsync() == ContentDialogResult.Primary
+                ? textBox.Text
+                : null;
+        }
+        finally
+        {
+            _isInsertDialogOpen = false;
+        }
     }
 }

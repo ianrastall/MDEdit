@@ -22,6 +22,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IServiceProvider _services;
     private readonly IFilePickerService _filePicker;
     private readonly IApplicationService _application;
+    private readonly IUnsavedChangesPromptService _unsavedChangesPrompt;
 
     [ObservableProperty]
     private ObservableCollection<DocumentViewModel> _tabs = [];
@@ -39,15 +40,18 @@ public partial class ShellViewModel : ObservableObject
     public ShellViewModel(
         IServiceProvider services,
         IFilePickerService filePicker,
-        IApplicationService application)
+        IApplicationService application,
+        IUnsavedChangesPromptService unsavedChangesPrompt)
     {
         _services = services;
         _filePicker = filePicker;
         _application = application;
+        _unsavedChangesPrompt = unsavedChangesPrompt;
         NewTab();
     }
 
     public bool HasActiveTab => ActiveTab is not null;
+    public bool HasUnsavedChanges => Tabs.Any(tab => tab.IsDirty);
 
     [RelayCommand]
     public void NewTab()
@@ -73,10 +77,21 @@ public partial class ShellViewModel : ObservableObject
     {
         if (!MarkdownExtensions.Contains(Path.GetExtension(filePath)))
         {
-            throw new NotSupportedException("MDEdit opens Markdown and plain-text files only.");
+            SetStatusMessage("Open failed: MDEdit opens Markdown and plain-text files only.");
+            return;
         }
 
-        string markdown = await File.ReadAllTextAsync(filePath, MarkdownEncoding);
+        string markdown;
+        try
+        {
+            markdown = await File.ReadAllTextAsync(filePath, MarkdownEncoding);
+        }
+        catch (Exception ex)
+        {
+            SetStatusMessage($"Open failed: {ex.Message}");
+            return;
+        }
+
         DocumentViewModel tab = ReusableBlankTab() ?? _services.GetRequiredService<DocumentViewModel>();
 
         if (!Tabs.Contains(tab))
@@ -102,8 +117,15 @@ public partial class ShellViewModel : ObservableObject
             return;
         }
 
-        await File.WriteAllTextAsync(ActiveTab.Document.FilePath, ActiveTab.RawMarkdown, MarkdownEncoding);
-        ActiveTab.MarkSaved(ActiveTab.Document.FilePath);
+        try
+        {
+            await File.WriteAllTextAsync(ActiveTab.Document.FilePath, ActiveTab.RawMarkdown, MarkdownEncoding);
+            ActiveTab.MarkSaved(ActiveTab.Document.FilePath);
+        }
+        catch (Exception ex)
+        {
+            ActiveTab.StatusMessage = $"Save failed: {ex.Message}";
+        }
     }
 
     [RelayCommand(CanExecute = nameof(HasActiveTab))]
@@ -124,8 +146,15 @@ public partial class ShellViewModel : ObservableObject
             return;
         }
 
-        await File.WriteAllTextAsync(filePath, ActiveTab.RawMarkdown, MarkdownEncoding);
-        ActiveTab.MarkSaved(filePath);
+        try
+        {
+            await File.WriteAllTextAsync(filePath, ActiveTab.RawMarkdown, MarkdownEncoding);
+            ActiveTab.MarkSaved(filePath);
+        }
+        catch (Exception ex)
+        {
+            ActiveTab.StatusMessage = $"Save failed: {ex.Message}";
+        }
     }
 
     [RelayCommand(CanExecute = nameof(HasActiveTab))]
@@ -190,9 +219,31 @@ public partial class ShellViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void Exit()
+    private async Task ExitAsync()
     {
+        if (!await ConfirmCloseAsync())
+        {
+            return;
+        }
+
         _application.Exit();
+    }
+
+    public async Task<bool> ConfirmCloseAsync()
+    {
+        int unsavedCount = Tabs.Count(tab => tab.IsDirty);
+        if (unsavedCount == 0)
+        {
+            return true;
+        }
+
+        bool shouldClose = await _unsavedChangesPrompt.ConfirmDiscardUnsavedChangesAsync(unsavedCount);
+        if (!shouldClose)
+        {
+            SetStatusMessage("Exit canceled; unsaved changes remain.");
+        }
+
+        return shouldClose;
     }
 
     private DocumentViewModel? ReusableBlankTab()
@@ -207,5 +258,13 @@ public partial class ShellViewModel : ObservableObject
             && string.IsNullOrWhiteSpace(ActiveTab.Document.FilePath)
                 ? ActiveTab
                 : null;
+    }
+
+    private void SetStatusMessage(string message)
+    {
+        if (ActiveTab is not null)
+        {
+            ActiveTab.StatusMessage = message;
+        }
     }
 }

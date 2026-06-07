@@ -17,6 +17,9 @@ namespace MDEdit.WinUI;
 
 public partial class App : Microsoft.UI.Xaml.Application
 {
+    private bool _allowMainWindowClose;
+    private bool _isHandlingMainWindowClose;
+
     public Window? MainWindow { get; private set; }
     public IHost Host { get; }
 
@@ -30,6 +33,7 @@ public partial class App : Microsoft.UI.Xaml.Application
                 services.AddSingleton<IMarkdownFormattingService, MarkdownFormattingService>();
                 services.AddSingleton<IFilePickerService, WinUIFilePickerService>();
                 services.AddSingleton<IApplicationService, WinUIApplicationService>();
+                services.AddSingleton<IUnsavedChangesPromptService, WinUIUnsavedChangesPromptService>();
                 services.AddTransient<DocumentViewModel>();
                 services.AddSingleton<ShellViewModel>();
                 services.AddTransient<ShellPage>();
@@ -48,7 +52,9 @@ public partial class App : Microsoft.UI.Xaml.Application
         var rootFrame = new Frame();
         rootFrame.Navigate(typeof(ShellPage));
         MainWindow.Content = rootFrame;
-        MaximizeWindow(MainWindow);
+        AppWindow appWindow = GetAppWindow(MainWindow);
+        appWindow.Closing += MainWindow_Closing;
+        MaximizeWindow(appWindow);
         MainWindow.Activate();
 
         if (rootFrame.Content is ShellPage shellPage)
@@ -73,12 +79,54 @@ public partial class App : Microsoft.UI.Xaml.Application
         return File.Exists(trimmed) ? trimmed : null;
     }
 
-    private static void MaximizeWindow(Window window)
+    public void CloseMainWindowWithoutPrompt()
+    {
+        _allowMainWindowClose = true;
+        MainWindow?.Close();
+    }
+
+    private async void MainWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (_allowMainWindowClose)
+        {
+            return;
+        }
+
+        ShellViewModel shellViewModel = Host.Services.GetRequiredService<ShellViewModel>();
+        if (!shellViewModel.HasUnsavedChanges)
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        if (_isHandlingMainWindowClose)
+        {
+            return;
+        }
+
+        _isHandlingMainWindowClose = true;
+        try
+        {
+            if (await shellViewModel.ConfirmCloseAsync())
+            {
+                CloseMainWindowWithoutPrompt();
+            }
+        }
+        finally
+        {
+            _isHandlingMainWindowClose = false;
+        }
+    }
+
+    private static AppWindow GetAppWindow(Window window)
     {
         IntPtr hwnd = WindowNative.GetWindowHandle(window);
         WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-        AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
+        return AppWindow.GetFromWindowId(windowId);
+    }
 
+    private static void MaximizeWindow(AppWindow appWindow)
+    {
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.Maximize();

@@ -6,6 +6,6 @@ public sealed class WinUIApplicationService : IApplicationService
 {
     public void Exit()
     {
-        (Microsoft.UI.Xaml.Application.Current as App)?.MainWindow?.Close();
+        (Microsoft.UI.Xaml.Application.Current as App)?.CloseMainWindowWithoutPrompt();
     }
 }
