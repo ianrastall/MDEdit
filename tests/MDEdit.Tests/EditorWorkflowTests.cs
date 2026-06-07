@@ -37,6 +37,31 @@ public sealed class EditorWorkflowTests
     }
 
     [Fact]
+    public void MarkSaved_PublishesCleanDocumentTitle()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+        var titleChanges = new List<string>();
+        document.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(DocumentViewModel.DocumentTitle))
+            {
+                titleChanges.Add(document.DocumentTitle);
+            }
+        };
+
+        document.Load("sample.md", "# Title");
+        document.SetMarkdownFromEditor("# Updated");
+
+        Assert.Equal("* sample.md", document.DocumentTitle);
+
+        document.MarkSaved("sample.md");
+
+        Assert.False(document.IsDirty);
+        Assert.Equal("sample.md", document.DocumentTitle);
+        Assert.Contains("sample.md", titleChanges);
+    }
+
+    [Fact]
     public void Outline_ParsesHeadingHierarchyAndIgnoresCodeFences()
     {
         var document = new DocumentViewModel(new PassthroughFormatter());
@@ -82,6 +107,67 @@ public sealed class EditorWorkflowTests
         Assert.Equal(1, prompt.PromptCount);
         Assert.False(application.DidExit);
         Assert.Contains("unsaved changes remain", shell.ActiveTab.StatusMessage);
+    }
+
+    [Fact]
+    public async Task OpenFileAsync_ActivatesAlreadyOpenTab()
+    {
+        string filePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.md");
+        await File.WriteAllTextAsync(filePath, "# Existing");
+
+        try
+        {
+            var shell = new ShellViewModel(
+                new DocumentServiceProvider(),
+                new FakeFilePickerService(),
+                new FakeApplicationService(),
+                new FakeUnsavedChangesPromptService(shouldConfirm: true));
+
+            await shell.OpenFileAsync(filePath);
+            DocumentViewModel openedTab = shell.ActiveTab!;
+
+            shell.NewTab();
+            await shell.OpenFileAsync(filePath);
+
+            Assert.Equal(2, shell.Tabs.Count);
+            Assert.Same(openedTab, shell.ActiveTab);
+            Assert.Contains("Already open", openedTab.StatusMessage);
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
+    }
+
+    [Fact]
+    public async Task SaveAsCommand_BlocksPathAlreadyOpenInAnotherTab()
+    {
+        string filePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.md");
+        await File.WriteAllTextAsync(filePath, "# Existing");
+
+        try
+        {
+            var shell = new ShellViewModel(
+                new DocumentServiceProvider(),
+                new FakeFilePickerService(savePath: filePath),
+                new FakeApplicationService(),
+                new FakeUnsavedChangesPromptService(shouldConfirm: true));
+
+            await shell.OpenFileAsync(filePath);
+            shell.NewTab();
+            DocumentViewModel unsavedTab = shell.ActiveTab!;
+            unsavedTab.SetMarkdownFromEditor("# Replacement");
+
+            await shell.SaveAsCommand.ExecuteAsync(null);
+
+            Assert.Null(unsavedTab.Document.FilePath);
+            Assert.Contains("already open", unsavedTab.StatusMessage);
+            Assert.Equal("# Existing", await File.ReadAllTextAsync(filePath));
+        }
+        finally
+        {
+            File.Delete(filePath);
+        }
     }
 
     [Fact]
@@ -135,12 +221,12 @@ public sealed class EditorWorkflowTests
         }
     }
 
-    private sealed class FakeFilePickerService : IFilePickerService
+    private sealed class FakeFilePickerService(string? openPath = null, string? savePath = null) : IFilePickerService
     {
-        public Task<string?> PickOpenMarkdownFileAsync() => Task.FromResult<string?>(null);
+        public Task<string?> PickOpenMarkdownFileAsync() => Task.FromResult(openPath);
 
         public Task<string?> PickSaveMarkdownFileAsync(string suggestedFileName) =>
-            Task.FromResult<string?>(null);
+            Task.FromResult(savePath);
     }
 
     private sealed class FakeApplicationService : IApplicationService

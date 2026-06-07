@@ -75,6 +75,14 @@ public partial class ShellViewModel : ObservableObject
 
     public async Task OpenFileAsync(string filePath)
     {
+        DocumentViewModel? existingTab = FindOpenTabForFile(filePath);
+        if (existingTab is not null)
+        {
+            ActiveTab = existingTab;
+            existingTab.StatusMessage = $"Already open: {Path.GetFileName(filePath)}.";
+            return;
+        }
+
         if (!MarkdownExtensions.Contains(Path.GetExtension(filePath)))
         {
             SetStatusMessage("Open failed: MDEdit opens Markdown and plain-text files only.");
@@ -117,6 +125,12 @@ public partial class ShellViewModel : ObservableObject
             return;
         }
 
+        if (FindOpenTabForFile(ActiveTab.Document.FilePath, ActiveTab) is not null)
+        {
+            ActiveTab.StatusMessage = $"Save skipped: {Path.GetFileName(ActiveTab.Document.FilePath)} is open in another tab.";
+            return;
+        }
+
         try
         {
             await File.WriteAllTextAsync(ActiveTab.Document.FilePath, ActiveTab.RawMarkdown, MarkdownEncoding);
@@ -143,6 +157,12 @@ public partial class ShellViewModel : ObservableObject
         string? filePath = await _filePicker.PickSaveMarkdownFileAsync(suggestedName);
         if (string.IsNullOrWhiteSpace(filePath))
         {
+            return;
+        }
+
+        if (FindOpenTabForFile(filePath, ActiveTab) is not null)
+        {
+            ActiveTab.StatusMessage = $"Save As canceled: {Path.GetFileName(filePath)} is already open in another tab.";
             return;
         }
 
@@ -258,6 +278,43 @@ public partial class ShellViewModel : ObservableObject
             && string.IsNullOrWhiteSpace(ActiveTab.Document.FilePath)
                 ? ActiveTab
                 : null;
+    }
+
+    private DocumentViewModel? FindOpenTabForFile(
+        string? filePath,
+        DocumentViewModel? excludedTab = null)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return null;
+        }
+
+        return Tabs.FirstOrDefault(tab =>
+            !ReferenceEquals(tab, excludedTab)
+            && PathsEqual(tab.Document.FilePath, filePath));
+    }
+
+    private static bool PathsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        return string.Equals(NormalizePath(left), NormalizePath(right), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePath(string path)
+    {
+        try
+        {
+            return Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (Exception)
+        {
+            return path;
+        }
     }
 
     private void SetStatusMessage(string message)

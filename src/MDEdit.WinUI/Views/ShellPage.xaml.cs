@@ -86,11 +86,16 @@ public sealed partial class ShellPage : Page
 
     private void TabViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (sender is DocumentViewModel viewModel
-            && e.PropertyName == nameof(DocumentViewModel.DocumentTitle)
-            && _tabItems.TryGetValue(viewModel, out TabViewItem? tab))
+        if (sender is not DocumentViewModel viewModel)
         {
-            tab.Header = viewModel.DocumentTitle;
+            return;
+        }
+
+        if (e.PropertyName is nameof(DocumentViewModel.DocumentTitle)
+            or nameof(DocumentViewModel.Document)
+            or nameof(DocumentViewModel.IsDirty))
+        {
+            RefreshTabHeader(viewModel);
         }
     }
 
@@ -149,6 +154,14 @@ public sealed partial class ShellPage : Page
         viewModel.PropertyChanged -= TabViewModel_PropertyChanged;
         DocumentTabs.TabItems.Remove(tab);
         _tabItems.Remove(viewModel);
+    }
+
+    private void RefreshTabHeader(DocumentViewModel viewModel)
+    {
+        if (_tabItems.TryGetValue(viewModel, out TabViewItem? tab))
+        {
+            tab.Header = viewModel.DocumentTitle;
+        }
     }
 
     private void SelectActiveTab()

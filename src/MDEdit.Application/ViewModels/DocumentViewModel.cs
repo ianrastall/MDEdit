@@ -112,6 +112,9 @@ public partial class DocumentViewModel : ObservableObject
             RawMarkdown = normalizedMarkdown;
         }
 
+        SourceLineEndingDisplayName = LineEndingDisplayName;
+        IsDirty = false;
+
         Document = new DocumentContext
         {
             FilePath = filePath,
@@ -119,8 +122,6 @@ public partial class DocumentViewModel : ObservableObject
             Flavor = Flavor,
         };
 
-        SourceLineEndingDisplayName = LineEndingDisplayName;
-        IsDirty = false;
         StatusMessage = $"Saved {Path.GetFileName(filePath)}.";
         OnPropertyChanged(nameof(DocumentTitle));
     }
@@ -319,17 +320,33 @@ public partial class DocumentViewModel : ObservableObject
         var roots = new ObservableCollection<HeadingNode>();
         var stack = new Stack<HeadingNode>();
         string? fence = null;
+        int lineNumber = 1;
+        int characterOffset = 0;
 
-        foreach ((string line, int lineNumber, int characterOffset) in EnumerateLines(markdown))
+        foreach (ReadOnlySpan<char> lineSpan in markdown.AsSpan().EnumerateLines())
         {
-            if (TryUpdateFence(line, ref fence) || fence is not null)
+            ReadOnlySpan<char> trimmedLine = lineSpan.TrimStart();
+
+            if (TryUpdateFence(trimmedLine, ref fence) || fence is not null)
             {
+                characterOffset = NextLineOffset(markdown, characterOffset, lineSpan.Length);
+                lineNumber++;
                 continue;
             }
 
+            if (trimmedLine.IsEmpty || trimmedLine[0] != '#')
+            {
+                characterOffset = NextLineOffset(markdown, characterOffset, lineSpan.Length);
+                lineNumber++;
+                continue;
+            }
+
+            string line = lineSpan.ToString();
             Match match = HeadingRegex().Match(line);
             if (!match.Success)
             {
+                characterOffset = NextLineOffset(markdown, characterOffset, lineSpan.Length);
+                lineNumber++;
                 continue;
             }
 
@@ -337,6 +354,8 @@ public partial class DocumentViewModel : ObservableObject
             string title = Regex.Replace(match.Groups[2].Value.Trim(), @"[ \t]+#+[ \t]*$", "").Trim();
             if (string.IsNullOrWhiteSpace(title))
             {
+                characterOffset = NextLineOffset(markdown, characterOffset, lineSpan.Length);
+                lineNumber++;
                 continue;
             }
 
@@ -363,49 +382,47 @@ public partial class DocumentViewModel : ObservableObject
             }
 
             stack.Push(node);
+            characterOffset = NextLineOffset(markdown, characterOffset, lineSpan.Length);
+            lineNumber++;
         }
 
         HeadingNodes = roots;
     }
 
-    private static IEnumerable<(string Line, int LineNumber, int CharacterOffset)> EnumerateLines(string text)
+    private static int NextLineOffset(string text, int lineStart, int lineLength)
     {
-        int lineNumber = 1;
-        int lineStart = 0;
-
-        for (int i = 0; i < text.Length; i++)
+        int separatorStart = lineStart + lineLength;
+        if (separatorStart >= text.Length)
         {
-            if (text[i] != '\r' && text[i] != '\n')
-            {
-                continue;
-            }
-
-            yield return (text[lineStart..i], lineNumber, lineStart);
-
-            if (text[i] == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
-            {
-                i++;
-            }
-
-            lineNumber++;
-            lineStart = i + 1;
+            return separatorStart;
         }
 
-        yield return (text[lineStart..], lineNumber, lineStart);
+        if (text[separatorStart] == '\r')
+        {
+            if (separatorStart + 1 < text.Length && text[separatorStart + 1] == '\n')
+            {
+                return separatorStart + 2;
+            }
+
+            return separatorStart + 1;
+        }
+
+        return text[separatorStart] == '\n'
+            ? separatorStart + 1
+            : separatorStart;
     }
 
-    private static bool TryUpdateFence(string line, ref string? fence)
+    private static bool TryUpdateFence(ReadOnlySpan<char> trimmedLine, ref string? fence)
     {
-        string trimmed = line.TrimStart();
         if (fence is null)
         {
-            if (trimmed.StartsWith("```", StringComparison.Ordinal))
+            if (trimmedLine.StartsWith("```".AsSpan(), StringComparison.Ordinal))
             {
                 fence = "```";
                 return true;
             }
 
-            if (trimmed.StartsWith("~~~", StringComparison.Ordinal))
+            if (trimmedLine.StartsWith("~~~".AsSpan(), StringComparison.Ordinal))
             {
                 fence = "~~~";
                 return true;
@@ -414,7 +431,7 @@ public partial class DocumentViewModel : ObservableObject
             return false;
         }
 
-        if (trimmed.StartsWith(fence, StringComparison.Ordinal))
+        if (trimmedLine.StartsWith(fence.AsSpan(), StringComparison.Ordinal))
         {
             fence = null;
             return true;

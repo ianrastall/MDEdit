@@ -59,9 +59,53 @@ public sealed partial class EditorPage : Page
 
     private void SyncTextBoxToViewModel()
     {
+        if (_syncingFromViewModel)
+        {
+            return;
+        }
+
+        if (RawMarkdownTextBox.Text == ViewModel.RawMarkdown)
+        {
+            SyncEditorChrome();
+            return;
+        }
+
+        int selectionStart = RawMarkdownTextBox.SelectionStart;
+        int selectionLength = RawMarkdownTextBox.SelectionLength;
+        double? horizontalOffset = _editorScrollViewer?.HorizontalOffset;
+        double? verticalOffset = _editorScrollViewer?.VerticalOffset;
+
         _syncingFromViewModel = true;
-        RawMarkdownTextBox.Text = ViewModel.RawMarkdown;
-        _syncingFromViewModel = false;
+        try
+        {
+            RawMarkdownTextBox.Text = ViewModel.RawMarkdown;
+
+            int restoredSelectionStart = Math.Clamp(selectionStart, 0, RawMarkdownTextBox.Text.Length);
+            RawMarkdownTextBox.SelectionStart = restoredSelectionStart;
+            RawMarkdownTextBox.SelectionLength = Math.Clamp(
+                selectionLength,
+                0,
+                RawMarkdownTextBox.Text.Length - restoredSelectionStart);
+        }
+        finally
+        {
+            _syncingFromViewModel = false;
+        }
+
+        if (horizontalOffset is not null || verticalOffset is not null)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _editorScrollViewer?.ChangeView(
+                    horizontalOffset: horizontalOffset,
+                    verticalOffset: verticalOffset,
+                    zoomFactor: null,
+                    disableAnimation: true);
+                SyncLineNumberScroll();
+                UpdateCurrentLineHighlight();
+            });
+        }
+
         SyncEditorChrome();
     }
 
