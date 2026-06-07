@@ -4,6 +4,7 @@ using Markdig.Renderers.Normalize;
 using Markdig.Syntax;
 using MDEdit.Core.Interfaces;
 using MDEdit.Core.Models;
+using System.Text.RegularExpressions;
 
 namespace MDEdit.Infrastructure.Services;
 
@@ -27,6 +28,29 @@ public sealed class MarkdownFormattingService : IMarkdownFormattingService
         {
             return rawMarkdown;
         }
+    }
+
+    public MarkdownReflowResult ReflowHeadings(
+        string rawMarkdown,
+        MarkdownFlavor flavor,
+        int topHeadingLevel)
+    {
+        ArgumentNullException.ThrowIfNull(rawMarkdown);
+
+        topHeadingLevel = Math.Clamp(topHeadingLevel, 1, 6);
+        MarkdownParts parts = SplitFrontMatter(rawMarkdown);
+        MarkdownPipeline pipeline = CreatePipeline(flavor);
+        MarkdownDocument document = Markdig.Markdown.Parse(parts.Body, pipeline);
+        IReadOnlyList<HeadingChange> changes = NormalizeHeadingHierarchy(document, topHeadingLevel);
+        RemoveSyntheticHeadingDefinitions(document);
+
+        string markdown = ReattachFrontMatter(parts.FrontMatter, RenderNormalized(document, pipeline));
+        IReadOnlyList<string> warnings = BuildReflowWarnings(rawMarkdown, changes);
+
+        return new MarkdownReflowResult(
+            markdown,
+            changes.Count(change => change.OriginalLevel != change.NormalizedLevel),
+            warnings);
     }
 
     private static MarkdownPipeline CreatePipeline(MarkdownFlavor flavor)
@@ -93,6 +117,44 @@ public sealed class MarkdownFormattingService : IMarkdownFormattingService
         }
     }
 
+    private static IReadOnlyList<HeadingChange> NormalizeHeadingHierarchy(
+        MarkdownDocument document,
+        int topHeadingLevel)
+    {
+        var hierarchy = new Stack<(int OriginalLevel, int NormalizedLevel)>();
+        var changes = new List<HeadingChange>();
+
+        foreach (HeadingBlock heading in document.Descendants<HeadingBlock>())
+        {
+            heading.IsSetext = false;
+            heading.HeaderChar = '#';
+
+            int requestedLevel = Math.Clamp(heading.Level, 1, 6);
+
+            while (hierarchy.Count > 0 && hierarchy.Peek().OriginalLevel >= requestedLevel)
+            {
+                hierarchy.Pop();
+            }
+
+            int unclampedLevel = hierarchy.Count == 0
+                ? topHeadingLevel
+                : hierarchy.Peek().NormalizedLevel + 1;
+            int normalizedLevel = Math.Min(unclampedLevel, 6);
+
+            heading.Level = normalizedLevel;
+            heading.HeaderCharCount = normalizedLevel;
+
+            hierarchy.Push((requestedLevel, normalizedLevel));
+            changes.Add(new HeadingChange(
+                requestedLevel,
+                normalizedLevel,
+                heading.Line + 1,
+                unclampedLevel > 6));
+        }
+
+        return changes;
+    }
+
     private static void RemoveSyntheticHeadingDefinitions(MarkdownDocument document)
     {
         foreach (LinkReferenceDefinitionGroup group in
@@ -110,6 +172,46 @@ public sealed class MarkdownFormattingService : IMarkdownFormattingService
             }
         }
     }
+
+    private static IReadOnlyList<string> BuildReflowWarnings(
+        string rawMarkdown,
+        IReadOnlyList<HeadingChange> changes)
+    {
+        var warnings = new List<string>();
+        int changed = changes.Count(change => change.OriginalLevel != change.NormalizedLevel);
+
+        if (changes.Count == 0)
+        {
+            warnings.Add("No Markdown headings were found.");
+        }
+        else if (changed > 0)
+        {
+            warnings.Add("Review hand-written tables of contents, outline prose, and links that describe heading levels.");
+        }
+
+        if (changes.Any(change => change.WasClamped))
+        {
+            warnings.Add("Some deep child headings reached H6 and could not be nested further.");
+        }
+
+        if (Regex.IsMatch(rawMarkdown, @"<h[1-6]\b", RegexOptions.IgnoreCase))
+        {
+            warnings.Add("Raw HTML heading tags were detected; reflow does not rewrite HTML headings.");
+        }
+
+        if (Regex.IsMatch(rawMarkdown, @"\]\(\s*#|href\s*=\s*[""']#", RegexOptions.IgnoreCase))
+        {
+            warnings.Add("Anchor links were detected; check manually maintained navigation after reflow.");
+        }
+
+        return warnings;
+    }
+
+    private sealed record HeadingChange(
+        int OriginalLevel,
+        int NormalizedLevel,
+        int LineNumber,
+        bool WasClamped);
 
     private sealed record MarkdownParts(string? FrontMatter, string Body);
 }

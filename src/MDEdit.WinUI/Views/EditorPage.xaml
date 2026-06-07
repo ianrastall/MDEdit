@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CommunityToolkit.WinUI.UI.Controls"
     xmlns:converters="using:MDEdit.WinUI.Converters"
+    xmlns:models="using:MDEdit.Core.Models"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     RequestedTheme="Dark"
@@ -17,30 +18,129 @@
     </Page.Resources>
 
     <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-            <TextBox
-                x:Name="RawMarkdownTextBox"
-                Padding="32,24,32,48"
-                AcceptsReturn="True"
-                Background="Transparent"
-                BorderBrush="Transparent"
-                BorderThickness="0"
-                FontFamily="Cascadia Code, Cascadia Mono, Consolas, Courier New"
-                FontSize="14"
-                Foreground="{ThemeResource DefaultTextForegroundThemeBrush}"
+        <Border
+            x:Name="OutlinePane"
+            Grid.RowSpan="2"
+            Grid.Column="0"
+            Width="300"
+            Background="{ThemeResource LayerFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0,0,1,0"
+            Visibility="Collapsed">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock
+                    Margin="12,12,12,0"
+                    Text="Outline"
+                    Style="{ThemeResource SubtitleTextBlockStyle}" />
+
+                <TreeView
+                    x:Name="HeadingTreeView"
+                    Grid.Row="1"
+                    Margin="0,8,0,0"
+                    ItemsSource="{x:Bind ViewModel.HeadingNodes, Mode=OneWay}"
+                    SelectionChanged="HeadingTreeView_SelectionChanged">
+                    <TreeView.ItemTemplate>
+                        <DataTemplate x:DataType="models:HeadingNode">
+                            <TreeViewItem
+                                Content="{x:Bind Title}"
+                                Tag="{x:Bind}"
+                                ItemsSource="{x:Bind Children}" />
+                        </DataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </Grid>
+        </Border>
+
+        <Border
+            Grid.RowSpan="2"
+            Grid.Column="1"
+            Width="1"
+            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+            Visibility="{Binding Visibility, ElementName=OutlinePane}" />
+
+        <Grid Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+            <Grid
+                x:Name="EditorSurface"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
-                IsSpellCheckEnabled="False"
-                ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                ScrollViewer.VerticalScrollBarVisibility="Auto"
-                TextChanged="RawMarkdownTextBox_TextChanged"
-                TextWrapping="NoWrap"
-                Visibility="{x:Bind ViewModel.IsEditorVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                Visibility="{x:Bind ViewModel.IsEditorVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="56" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border
+                    Grid.Column="0"
+                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="0,0,1,0">
+                    <ScrollViewer
+                        x:Name="LineNumberScrollViewer"
+                        HorizontalScrollBarVisibility="Disabled"
+                        IsHitTestVisible="False"
+                        VerticalScrollBarVisibility="Hidden">
+                        <TextBlock
+                            x:Name="LineNumberTextBlock"
+                            Padding="0,24,10,48"
+                            FontFamily="Cascadia Code, Cascadia Mono, Consolas, Courier New"
+                            FontSize="14"
+                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                            LineHeight="20"
+                            TextAlignment="Right" />
+                    </ScrollViewer>
+                </Border>
+
+                <Grid Grid.Column="1">
+                    <Border
+                        x:Name="CurrentLineHighlight"
+                        Height="22"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Top"
+                        Background="#203D7BD9"
+                        IsHitTestVisible="False" />
+
+                    <TextBox
+                        x:Name="RawMarkdownTextBox"
+                        Padding="16,24,32,48"
+                        AcceptsReturn="True"
+                        Background="Transparent"
+                        BorderBrush="Transparent"
+                        BorderThickness="0"
+                        FontFamily="Cascadia Code, Cascadia Mono, Consolas, Courier New"
+                        FontSize="14"
+                        Foreground="{ThemeResource DefaultTextForegroundThemeBrush}"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Stretch"
+                        IsSpellCheckEnabled="False"
+                        Loaded="RawMarkdownTextBox_Loaded"
+                        SelectionChanged="RawMarkdownTextBox_SelectionChanged"
+                        SizeChanged="RawMarkdownTextBox_SizeChanged"
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto"
+                        TextChanged="RawMarkdownTextBox_TextChanged"
+                        TextWrapping="NoWrap">
+                        <TextBox.Resources>
+                            <SolidColorBrush x:Key="TextControlSelectionHighlightColor" Color="#9959A7FF" />
+                            <SolidColorBrush x:Key="TextControlSelectionHighlightColorWhenNotFocused" Color="#8059A7FF" />
+                        </TextBox.Resources>
+                    </TextBox>
+                </Grid>
+            </Grid>
 
             <ScrollViewer
                 Padding="48,32,48,64"
@@ -58,6 +158,7 @@
 
         <Border
             Grid.Row="1"
+            Grid.Column="2"
             MinHeight="34"
             Padding="12,0"
             Background="{ThemeResource LayerFillColorDefaultBrush}"
@@ -66,6 +167,7 @@
             <Grid ColumnSpacing="12">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
@@ -85,12 +187,46 @@
                     Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
 
                 <ComboBox
-                    Grid.Column="2"
+                    Grid.Column="3"
                     Width="190"
                     Height="28"
                     Padding="8,0"
                     ItemsSource="{x:Bind ViewModel.AvailableFlavors}"
                     SelectedItem="{x:Bind ViewModel.Flavor, Mode=TwoWay}" />
+
+                <StackPanel
+                    Grid.Column="2"
+                    Orientation="Horizontal"
+                    Spacing="2"
+                    VerticalAlignment="Center">
+                    <TextBlock
+                        Margin="0,0,4,0"
+                        VerticalAlignment="Center"
+                        Text="Reflow:"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <RadioButton
+                        Height="28"
+                        MinWidth="44"
+                        Padding="4,0"
+                        Content="H1"
+                        IsChecked="True"
+                        Tag="1"
+                        Checked="ReflowTopHeadingRadioButton_Checked" />
+                    <RadioButton
+                        Height="28"
+                        MinWidth="44"
+                        Padding="4,0"
+                        Content="H2"
+                        Tag="2"
+                        Checked="ReflowTopHeadingRadioButton_Checked" />
+                    <RadioButton
+                        Height="28"
+                        MinWidth="44"
+                        Padding="4,0"
+                        Content="H3"
+                        Tag="3"
+                        Checked="ReflowTopHeadingRadioButton_Checked" />
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

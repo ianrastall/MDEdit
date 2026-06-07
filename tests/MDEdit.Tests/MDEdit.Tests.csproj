@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\MDEdit.Application\MDEdit.Application.csproj" />
     <ProjectReference Include="..\..\src\MDEdit.Core\MDEdit.Core.csproj" />
     <ProjectReference Include="..\..\src\MDEdit.Infrastructure\MDEdit.Infrastructure.csproj" />
   </ItemGroup>

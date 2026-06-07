@@ -26,13 +26,21 @@
                 <MenuFlyoutItem Text="Save As..." Command="{x:Bind ViewModel.SaveAsCommand}" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Close Tab" Command="{x:Bind ViewModel.CloseTabCommand}" />
+                <MenuFlyoutItem Text="Close All Saved" Command="{x:Bind ViewModel.CloseAllSavedCommand}" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Exit" Command="{x:Bind ViewModel.ExitCommand}" />
             </MenuBarItem>
             <MenuBarItem Title="Edit">
+                <MenuFlyoutItem Text="Copy All" Click="CopyAll_Click" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem Text="Append to End..." Click="AppendToEnd_Click" />
+                <MenuFlyoutItem Text="Append at Cursor..." Click="AppendAtCursor_Click" />
+                <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Format Markdown" Command="{x:Bind ViewModel.FormatCommand}" />
             </MenuBarItem>
             <MenuBarItem Title="View">
+                <MenuFlyoutItem Text="Heading Outline" Click="HeadingOutline_Click" />
+                <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Toggle Preview" Command="{x:Bind ViewModel.TogglePreviewCommand}" />
             </MenuBarItem>
         </MenuBar>
@@ -42,8 +50,26 @@
             <AppBarButton Icon="OpenFile" Label="Open" Command="{x:Bind ViewModel.OpenCommand}" />
             <AppBarButton Icon="Save" Label="Save" Command="{x:Bind ViewModel.SaveCommand}" />
             <AppBarButton Icon="SaveLocal" Label="Save As" Command="{x:Bind ViewModel.SaveAsCommand}" />
+            <AppBarButton Icon="Cancel" Label="Close Saved" Command="{x:Bind ViewModel.CloseAllSavedCommand}" />
+            <AppBarSeparator />
+            <AppBarButton Icon="Copy" Label="Copy All" Click="CopyAll_Click" />
+            <AppBarButton Label="Append End" Click="AppendToEnd_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE710;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton Label="Append Cursor" Click="AppendAtCursor_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8A5;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
             <AppBarSeparator />
             <AppBarButton Icon="Edit" Label="Format" Command="{x:Bind ViewModel.FormatCommand}" />
+            <AppBarButton Label="Outline" Click="HeadingOutline_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8FD;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
             <AppBarButton Icon="Preview" Label="Preview" Command="{x:Bind ViewModel.TogglePreviewCommand}" />
         </CommandBar>
 

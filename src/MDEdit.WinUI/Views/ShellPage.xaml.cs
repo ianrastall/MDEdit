@@ -6,6 +6,7 @@ using MDEdit.Application.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace MDEdit.WinUI.Views;
 
@@ -192,5 +193,80 @@ public sealed partial class ShellPage : Page
         {
             ViewModel.CloseTabCommand.Execute(viewModel);
         }
+    }
+
+    private EditorPage? ActiveEditorPage()
+    {
+        return DocumentTabs.SelectedItem is TabViewItem { Content: EditorPage editorPage }
+            ? editorPage
+            : null;
+    }
+
+    private void CopyAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.ActiveTab is null)
+        {
+            return;
+        }
+
+        var package = new DataPackage();
+        package.SetText(ViewModel.ActiveTab.RawMarkdown);
+        Clipboard.SetContent(package);
+        Clipboard.Flush();
+        ViewModel.ActiveTab.StatusMessage = "Copied all Markdown.";
+    }
+
+    private async void AppendToEnd_Click(object sender, RoutedEventArgs e)
+    {
+        string? content = await PromptForInsertContentAsync("Append to End");
+        if (string.IsNullOrEmpty(content) || ViewModel.ActiveTab is null)
+        {
+            return;
+        }
+
+        ViewModel.ActiveTab.AppendToEnd(content);
+    }
+
+    private async void AppendAtCursor_Click(object sender, RoutedEventArgs e)
+    {
+        string? content = await PromptForInsertContentAsync("Append at Cursor");
+        if (string.IsNullOrEmpty(content))
+        {
+            return;
+        }
+
+        ActiveEditorPage()?.InsertAtCursor(content);
+    }
+
+    private void HeadingOutline_Click(object sender, RoutedEventArgs e)
+    {
+        ActiveEditorPage()?.ToggleOutlinePane();
+    }
+
+    private async Task<string?> PromptForInsertContentAsync(string title)
+    {
+        var textBox = new TextBox
+        {
+            AcceptsReturn = true,
+            MinHeight = 180,
+            TextWrapping = TextWrapping.Wrap,
+            PlaceholderText = "Enter Markdown to insert...",
+            FontFamily = new Microsoft.UI.Xaml.Media.FontFamily(
+                "Cascadia Code, Cascadia Mono, Consolas, Courier New"),
+        };
+
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = textBox,
+            PrimaryButtonText = "Insert",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+            XamlRoot = XamlRoot,
+        };
+
+        return await dialog.ShowAsync() == ContentDialogResult.Primary
+            ? textBox.Text
+            : null;
     }
 }

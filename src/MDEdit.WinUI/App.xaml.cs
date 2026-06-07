@@ -5,10 +5,13 @@ using MDEdit.WinUI.Services;
 using MDEdit.WinUI.Views;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Threading;
+using WinRT.Interop;
 
 namespace MDEdit.WinUI;
 
@@ -45,6 +48,7 @@ public partial class App : Microsoft.UI.Xaml.Application
         var rootFrame = new Frame();
         rootFrame.Navigate(typeof(ShellPage));
         MainWindow.Content = rootFrame;
+        MaximizeWindow(MainWindow);
         MainWindow.Activate();
 
         if (rootFrame.Content is ShellPage shellPage)
@@ -67,5 +71,17 @@ public partial class App : Microsoft.UI.Xaml.Application
 
         string trimmed = launchArguments.Trim().Trim('"');
         return File.Exists(trimmed) ? trimmed : null;
+    }
+
+    private static void MaximizeWindow(Window window)
+    {
+        IntPtr hwnd = WindowNative.GetWindowHandle(window);
+        WindowId windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
+        AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
+
+        if (appWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.Maximize();
+        }
     }
 }

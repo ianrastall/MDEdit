@@ -31,6 +31,7 @@ public partial class ShellViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveAsCommand))]
     [NotifyCanExecuteChangedFor(nameof(CloseTabCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CloseAllSavedCommand))]
     [NotifyCanExecuteChangedFor(nameof(FormatCommand))]
     [NotifyCanExecuteChangedFor(nameof(TogglePreviewCommand))]
     private DocumentViewModel? _activeTab;
@@ -146,6 +147,34 @@ public partial class ShellViewModel : ObservableObject
         }
 
         ActiveTab = Tabs[Math.Clamp(index, 0, Tabs.Count - 1)];
+    }
+
+    [RelayCommand(CanExecute = nameof(HasActiveTab))]
+    public void CloseAllSaved()
+    {
+        DocumentViewModel[] savedTabs = Tabs.Where(tab => !tab.IsDirty).ToArray();
+        int closedCount = savedTabs.Length;
+
+        foreach (DocumentViewModel tab in savedTabs)
+        {
+            Tabs.Remove(tab);
+        }
+
+        if (Tabs.Count == 0)
+        {
+            NewTab();
+        }
+        else if (ActiveTab is null || !Tabs.Contains(ActiveTab))
+        {
+            ActiveTab = Tabs[0];
+        }
+
+        int unsavedCount = Tabs.Count(tab => tab.IsDirty);
+        ActiveTab!.StatusMessage = closedCount == 0
+            ? "No saved tabs to close."
+            : unsavedCount == 0
+                ? $"Closed {closedCount:N0} saved tab(s)."
+                : $"Closed {closedCount:N0} saved tab(s); {unsavedCount:N0} unsaved tab(s) remain.";
     }
 
     [RelayCommand(CanExecute = nameof(HasActiveTab))]
