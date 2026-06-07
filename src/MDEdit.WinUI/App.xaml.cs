@@ -64,6 +64,7 @@ public partial class App : Microsoft.UI.Xaml.Application
         rootFrame.Navigate(typeof(ShellPage));
         MainWindow.Content = rootFrame;
         AppWindow appWindow = GetAppWindow(MainWindow);
+        SetWindowIcon(appWindow);
         appWindow.Closing += MainWindow_Closing;
         MaximizeWindow(appWindow);
         MainWindow.Activate();
@@ -176,6 +177,15 @@ public partial class App : Microsoft.UI.Xaml.Application
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.Maximize();
+        }
+    }
+
+    private static void SetWindowIcon(AppWindow appWindow)
+    {
+        string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "MDEdit.ico");
+        if (File.Exists(iconPath))
+        {
+            appWindow.SetIcon(iconPath);
         }
     }
 }

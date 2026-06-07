@@ -161,6 +161,112 @@ public sealed class EditorWorkflowTests
     }
 
     [Fact]
+    public void NumberHeadings_AddsHierarchyNumbersWithoutChangingLevels()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+
+        document.SetMarkdownFromEditor("""
+            # Intro
+
+            ## Background
+
+            ### Detail
+
+            # Next
+            """);
+
+        Assert.True(document.NumberHeadings());
+
+        Assert.Equal(
+            "# 1 Intro\r\n\r\n## 1.1 Background\r\n\r\n### 1.1.1 Detail\r\n\r\n# 2 Next",
+            document.RawMarkdown);
+        Assert.Contains("Numbered headings", document.StatusMessage);
+    }
+
+    [Fact]
+    public void RemoveHeadingNumbers_StripsHierarchyNumbersWithoutChangingLevels()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+
+        document.SetMarkdownFromEditor("""
+            # 1 Intro
+
+            ## 1.1 Background
+
+            ### 1.1.1 Detail
+            """);
+
+        Assert.True(document.RemoveHeadingNumbers());
+
+        Assert.Equal("# Intro\r\n\r\n## Background\r\n\r\n### Detail", document.RawMarkdown);
+    }
+
+    [Fact]
+    public void PromoteHeading_ChangesOnlyCurrentHeadingAndRenumbersDocument()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+        document.SetMarkdownFromEditor("""
+            # 1 Intro
+
+            ## 1.1 Background
+
+            ### 1.1.1 Detail
+
+            ## 1.2 Other
+            """);
+
+        int offset = document.RawMarkdown.IndexOf("Detail", StringComparison.Ordinal);
+
+        Assert.True(document.TryChangeHeadingLevelAtOffset(offset, levelDelta: -1, includeSubtree: false, out _));
+
+        Assert.Equal(
+            "# 1 Intro\r\n\r\n## 1.1 Background\r\n\r\n## 1.2 Detail\r\n\r\n## 1.3 Other",
+            document.RawMarkdown);
+    }
+
+    [Fact]
+    public void PromoteSubtree_ChangesCurrentHeadingAndChildrenThenRenumbersDocument()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+        document.SetMarkdownFromEditor("""
+            # 1 Intro
+
+            ## 1.1 Part
+
+            ### 1.1.1 Child
+
+            #### 1.1.1.1 Grandchild
+
+            ## 1.2 Next
+            """);
+
+        int offset = document.RawMarkdown.IndexOf("Part", StringComparison.Ordinal);
+
+        Assert.True(document.TryChangeHeadingLevelAtOffset(offset, levelDelta: -1, includeSubtree: true, out _));
+
+        Assert.Equal(
+            "# 1 Intro\r\n\r\n# 2 Part\r\n\r\n## 2.1 Child\r\n\r\n### 2.1.1 Grandchild\r\n\r\n## 2.2 Next",
+            document.RawMarkdown);
+    }
+
+    [Fact]
+    public void HeadingLevelCommands_RespectLevelBoundaries()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+        document.SetMarkdownFromEditor("""
+            # Root
+
+            ###### Deep
+            """);
+
+        int rootOffset = document.RawMarkdown.IndexOf("Root", StringComparison.Ordinal);
+        int deepOffset = document.RawMarkdown.IndexOf("Deep", StringComparison.Ordinal);
+
+        Assert.False(document.CanChangeHeadingLevelAtOffset(rootOffset, levelDelta: -1, includeSubtree: false));
+        Assert.False(document.CanChangeHeadingLevelAtOffset(deepOffset, levelDelta: 1, includeSubtree: false));
+    }
+
+    [Fact]
     public async Task ExitCommand_PromptsWhenTabsAreDirty()
     {
         var application = new FakeApplicationService();

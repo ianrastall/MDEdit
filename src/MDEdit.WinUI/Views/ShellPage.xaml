@@ -14,6 +14,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -37,6 +38,16 @@
                 <MenuFlyoutItem Text="Append at Cursor..." Click="AppendAtCursor_Click" />
                 <MenuFlyoutSeparator />
                 <MenuFlyoutItem Text="Format Markdown" Command="{x:Bind ViewModel.FormatCommand}" />
+            </MenuBarItem>
+            <MenuBarItem Title="Structure">
+                <MenuFlyoutItem x:Name="NumberHeadingsMenuItem" Text="Number Headings" Click="NumberHeadings_Click" />
+                <MenuFlyoutItem x:Name="RemoveHeadingNumbersMenuItem" Text="Remove Heading Numbers" Click="RemoveHeadingNumbers_Click" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem x:Name="PromoteHeadingMenuItem" Text="Promote Heading" Click="PromoteHeading_Click" />
+                <MenuFlyoutItem x:Name="DemoteHeadingMenuItem" Text="Demote Heading" Click="DemoteHeading_Click" />
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem x:Name="PromoteSubtreeMenuItem" Text="Promote Subtree" Click="PromoteSubtree_Click" />
+                <MenuFlyoutItem x:Name="DemoteSubtreeMenuItem" Text="Demote Subtree" Click="DemoteSubtree_Click" />
             </MenuBarItem>
             <MenuBarItem Title="View">
                 <MenuFlyoutItem Text="Heading Outline" Click="HeadingOutline_Click" />
@@ -73,9 +84,44 @@
             <AppBarButton Icon="Preview" Label="Preview" Command="{x:Bind ViewModel.TogglePreviewCommand}" />
         </CommandBar>
 
+        <CommandBar Grid.Row="2" DefaultLabelPosition="Right" Background="Transparent">
+            <AppBarButton x:Name="NumberHeadingsButton" Label="Number" Click="NumberHeadings_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE8FD;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton x:Name="RemoveHeadingNumbersButton" Label="Unnumber" Click="RemoveHeadingNumbers_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE74D;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarSeparator />
+            <AppBarButton x:Name="PromoteHeadingButton" Label="Promote" Click="PromoteHeading_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE70E;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton x:Name="DemoteHeadingButton" Label="Demote" Click="DemoteHeading_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE70D;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarSeparator />
+            <AppBarButton x:Name="PromoteSubtreeButton" Label="Promote Tree" Click="PromoteSubtree_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE74A;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+            <AppBarButton x:Name="DemoteSubtreeButton" Label="Demote Tree" Click="DemoteSubtree_Click">
+                <AppBarButton.Icon>
+                    <FontIcon Glyph="&#xE74B;" />
+                </AppBarButton.Icon>
+            </AppBarButton>
+        </CommandBar>
+
         <TabView
             x:Name="DocumentTabs"
-            Grid.Row="2"
+            Grid.Row="3"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Stretch"
             AddTabButtonClick="DocumentTabs_AddTabButtonClick"

@@ -20,6 +20,12 @@ public sealed partial class EditorPage : Page
     private int _lineNumberCount;
 
     public DocumentViewModel ViewModel { get; }
+    public event EventHandler? HeadingCommandStateChanged;
+
+    public bool CanPromoteCurrentHeading => CanChangeCurrentHeadingLevel(-1, includeSubtree: false);
+    public bool CanDemoteCurrentHeading => CanChangeCurrentHeadingLevel(1, includeSubtree: false);
+    public bool CanPromoteCurrentSubtree => CanChangeCurrentHeadingLevel(-1, includeSubtree: true);
+    public bool CanDemoteCurrentSubtree => CanChangeCurrentHeadingLevel(1, includeSubtree: true);
 
     public EditorPage(DocumentViewModel viewModel)
     {
@@ -111,6 +117,7 @@ public sealed partial class EditorPage : Page
         }
 
         SyncEditorChrome();
+        NotifyHeadingCommandStateChanged();
     }
 
     private void RawMarkdownTextBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -131,6 +138,7 @@ public sealed partial class EditorPage : Page
         }
 
         SyncEditorChrome();
+        NotifyHeadingCommandStateChanged();
     }
 
     private void RawMarkdownTextBox_Loaded(object sender, RoutedEventArgs e)
@@ -152,6 +160,7 @@ public sealed partial class EditorPage : Page
     private void RawMarkdownTextBox_SelectionChanged(object sender, RoutedEventArgs e)
     {
         UpdateCurrentLineHighlight();
+        NotifyHeadingCommandStateChanged();
     }
 
     private void RawMarkdownTextBox_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -230,6 +239,36 @@ public sealed partial class EditorPage : Page
         ViewModel.ToggleOutlineVisibility();
     }
 
+    public void NumberHeadings()
+    {
+        RunDocumentStructureCommand(() => ViewModel.NumberHeadings());
+    }
+
+    public void RemoveHeadingNumbers()
+    {
+        RunDocumentStructureCommand(() => ViewModel.RemoveHeadingNumbers());
+    }
+
+    public void PromoteCurrentHeading()
+    {
+        ChangeCurrentHeadingLevel(-1, includeSubtree: false);
+    }
+
+    public void DemoteCurrentHeading()
+    {
+        ChangeCurrentHeadingLevel(1, includeSubtree: false);
+    }
+
+    public void PromoteCurrentSubtree()
+    {
+        ChangeCurrentHeadingLevel(-1, includeSubtree: true);
+    }
+
+    public void DemoteCurrentSubtree()
+    {
+        ChangeCurrentHeadingLevel(1, includeSubtree: true);
+    }
+
     private void HeadingTreeView_SelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
     {
         if (TryGetHeadingNode(sender.SelectedItem, out HeadingNode? heading) && heading is not null)
@@ -255,6 +294,79 @@ public sealed partial class EditorPage : Page
         UpdateLineNumbers();
         SyncLineNumberScroll();
         UpdateCurrentLineHighlight();
+    }
+
+    private void RunDocumentStructureCommand(Func<bool> command)
+    {
+        int normalizedSelectionStart = GetNormalizedSelectionStart();
+        if (command())
+        {
+            RestoreSelectionFromNormalizedOffset(normalizedSelectionStart);
+        }
+
+        RawMarkdownTextBox.Focus(FocusState.Programmatic);
+        SyncEditorChrome();
+        NotifyHeadingCommandStateChanged();
+    }
+
+    private void ChangeCurrentHeadingLevel(int levelDelta, bool includeSubtree)
+    {
+        if (ViewModel.TryChangeHeadingLevelAtOffset(
+            GetNormalizedSelectionStart(),
+            levelDelta,
+            includeSubtree,
+            out int newCharacterOffset))
+        {
+            RestoreSelectionFromNormalizedOffset(newCharacterOffset);
+        }
+
+        RawMarkdownTextBox.Focus(FocusState.Programmatic);
+        SyncEditorChrome();
+        NotifyHeadingCommandStateChanged();
+    }
+
+    private bool CanChangeCurrentHeadingLevel(int levelDelta, bool includeSubtree)
+    {
+        return ViewModel.CanChangeHeadingLevelAtOffset(
+            GetNormalizedSelectionStart(),
+            levelDelta,
+            includeSubtree);
+    }
+
+    private int GetNormalizedSelectionStart()
+    {
+        int selectionStart = Math.Clamp(RawMarkdownTextBox.SelectionStart, 0, RawMarkdownTextBox.Text.Length);
+        return MarkdownTextUtilities.NormalizeLineEndingsToCrlf(RawMarkdownTextBox.Text[..selectionStart]).Length;
+    }
+
+    private void RestoreSelectionFromNormalizedOffset(int normalizedOffset)
+    {
+        int editorOffset = GetEditorOffsetFromNormalizedOffset(
+            RawMarkdownTextBox.Text,
+            Math.Clamp(normalizedOffset, 0, ViewModel.RawMarkdown.Length));
+        RawMarkdownTextBox.SelectionStart = Math.Clamp(editorOffset, 0, RawMarkdownTextBox.Text.Length);
+        RawMarkdownTextBox.SelectionLength = 0;
+    }
+
+    private static int GetEditorOffsetFromNormalizedOffset(string editorText, int normalizedOffset)
+    {
+        int normalizedPosition = 0;
+        for (int i = 0; i < editorText.Length; i++)
+        {
+            if (normalizedPosition >= normalizedOffset)
+            {
+                return i;
+            }
+
+            normalizedPosition += editorText[i] is '\r' or '\n' ? 2 : 1;
+        }
+
+        return editorText.Length;
+    }
+
+    private void NotifyHeadingCommandStateChanged()
+    {
+        HeadingCommandStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void SyncTextBoxToNormalizedText(

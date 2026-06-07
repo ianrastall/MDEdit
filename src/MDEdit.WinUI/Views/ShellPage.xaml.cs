@@ -29,6 +29,7 @@ public sealed partial class ShellPage : Page
 
         SyncTabs();
         SelectActiveTab();
+        RefreshStructureCommandState();
     }
 
     public Task OpenExternalFileAsync(string filePath)
@@ -81,6 +82,7 @@ public sealed partial class ShellPage : Page
         if (e.PropertyName == nameof(ShellViewModel.ActiveTab))
         {
             SelectActiveTab();
+            RefreshStructureCommandState();
         }
     }
 
@@ -103,7 +105,7 @@ public sealed partial class ShellPage : Page
     {
         foreach (DocumentViewModel viewModel in _tabItems.Keys.ToArray())
         {
-            viewModel.PropertyChanged -= TabViewModel_PropertyChanged;
+            RemoveTabSubscriptions(viewModel);
         }
 
         _tabItems.Clear();
@@ -122,13 +124,16 @@ public sealed partial class ShellPage : Page
             return;
         }
 
+        var editorPage = new EditorPage(viewModel);
+        editorPage.HeadingCommandStateChanged += EditorPage_HeadingCommandStateChanged;
+
         var tab = new TabViewItem
         {
             Header = viewModel.DocumentTitle,
             Tag = viewModel,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
-            Content = new EditorPage(viewModel),
+            Content = editorPage,
         };
 
         _tabItems[viewModel] = tab;
@@ -151,9 +156,10 @@ public sealed partial class ShellPage : Page
             return;
         }
 
-        viewModel.PropertyChanged -= TabViewModel_PropertyChanged;
+        RemoveTabSubscriptions(viewModel);
         DocumentTabs.TabItems.Remove(tab);
         _tabItems.Remove(viewModel);
+        RefreshStructureCommandState();
     }
 
     private void RefreshTabHeader(DocumentViewModel viewModel)
@@ -177,6 +183,7 @@ public sealed partial class ShellPage : Page
                 ? tab
                 : null;
         _syncingSelection = false;
+        RefreshStructureCommandState();
     }
 
     private void DocumentTabs_AddTabButtonClick(TabView sender, object args)
@@ -194,6 +201,7 @@ public sealed partial class ShellPage : Page
         if (DocumentTabs.SelectedItem is TabViewItem { Tag: DocumentViewModel viewModel })
         {
             ViewModel.ActiveTab = viewModel;
+            RefreshStructureCommandState();
         }
     }
 
@@ -255,6 +263,85 @@ public sealed partial class ShellPage : Page
     private void HeadingOutline_Click(object sender, RoutedEventArgs e)
     {
         ActiveEditorPage()?.ToggleOutlinePane();
+    }
+
+    private void NumberHeadings_Click(object sender, RoutedEventArgs e)
+    {
+        ActiveEditorPage()?.NumberHeadings();
+        RefreshStructureCommandState();
+    }
+
+    private void RemoveHeadingNumbers_Click(object sender, RoutedEventArgs e)
+    {
+        ActiveEditorPage()?.RemoveHeadingNumbers();
+        RefreshStructureCommandState();
+    }
+
+    private void PromoteHeading_Click(object sender, RoutedEventArgs e)
+    {
+        ActiveEditorPage()?.PromoteCurrentHeading();
+        RefreshStructureCommandState();
+    }
+
+    private void DemoteHeading_Click(object sender, RoutedEventArgs e)
+    {
+        ActiveEditorPage()?.DemoteCurrentHeading();
+        RefreshStructureCommandState();
+    }
+
+    private void PromoteSubtree_Click(object sender, RoutedEventArgs e)
+    {
+        ActiveEditorPage()?.PromoteCurrentSubtree();
+        RefreshStructureCommandState();
+    }
+
+    private void DemoteSubtree_Click(object sender, RoutedEventArgs e)
+    {
+        ActiveEditorPage()?.DemoteCurrentSubtree();
+        RefreshStructureCommandState();
+    }
+
+    private void EditorPage_HeadingCommandStateChanged(object? sender, EventArgs e)
+    {
+        if (ReferenceEquals(sender, ActiveEditorPage()))
+        {
+            RefreshStructureCommandState();
+        }
+    }
+
+    private void RefreshStructureCommandState()
+    {
+        EditorPage? editorPage = ActiveEditorPage();
+        bool hasEditor = editorPage is not null;
+        bool canPromoteHeading = editorPage?.CanPromoteCurrentHeading == true;
+        bool canDemoteHeading = editorPage?.CanDemoteCurrentHeading == true;
+        bool canPromoteSubtree = editorPage?.CanPromoteCurrentSubtree == true;
+        bool canDemoteSubtree = editorPage?.CanDemoteCurrentSubtree == true;
+
+        NumberHeadingsButton.IsEnabled = hasEditor;
+        RemoveHeadingNumbersButton.IsEnabled = hasEditor;
+        NumberHeadingsMenuItem.IsEnabled = hasEditor;
+        RemoveHeadingNumbersMenuItem.IsEnabled = hasEditor;
+
+        PromoteHeadingButton.IsEnabled = canPromoteHeading;
+        DemoteHeadingButton.IsEnabled = canDemoteHeading;
+        PromoteHeadingMenuItem.IsEnabled = canPromoteHeading;
+        DemoteHeadingMenuItem.IsEnabled = canDemoteHeading;
+
+        PromoteSubtreeButton.IsEnabled = canPromoteSubtree;
+        DemoteSubtreeButton.IsEnabled = canDemoteSubtree;
+        PromoteSubtreeMenuItem.IsEnabled = canPromoteSubtree;
+        DemoteSubtreeMenuItem.IsEnabled = canDemoteSubtree;
+    }
+
+    private void RemoveTabSubscriptions(DocumentViewModel viewModel)
+    {
+        viewModel.PropertyChanged -= TabViewModel_PropertyChanged;
+        if (_tabItems.TryGetValue(viewModel, out TabViewItem? tab)
+            && tab.Content is EditorPage editorPage)
+        {
+            editorPage.HeadingCommandStateChanged -= EditorPage_HeadingCommandStateChanged;
+        }
     }
 
     private async Task<string?> PromptForInsertContentAsync(string title)
