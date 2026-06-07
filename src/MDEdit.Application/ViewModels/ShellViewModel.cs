@@ -186,8 +186,14 @@ public partial class ShellViewModel : ObservableObject
             return;
         }
 
+        bool wasActive = ReferenceEquals(target, ActiveTab);
         int index = Tabs.IndexOf(target);
-        Tabs.Remove(target);
+        if (index < 0)
+        {
+            return;
+        }
+
+        Tabs.RemoveAt(index);
 
         if (Tabs.Count == 0)
         {
@@ -195,7 +201,10 @@ public partial class ShellViewModel : ObservableObject
             return;
         }
 
-        ActiveTab = Tabs[Math.Clamp(index, 0, Tabs.Count - 1)];
+        if (wasActive)
+        {
+            ActiveTab = Tabs[Math.Clamp(index, 0, Tabs.Count - 1)];
+        }
     }
 
     [RelayCommand(CanExecute = nameof(HasActiveTab))]
@@ -246,7 +255,7 @@ public partial class ShellViewModel : ObservableObject
             return;
         }
 
-        _application.Exit();
+        await _application.ExitAsync();
     }
 
     public async Task<bool> ConfirmCloseAsync()

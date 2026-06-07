@@ -37,6 +37,38 @@ public sealed class EditorWorkflowTests
     }
 
     [Fact]
+    public void NewDocumentAndSingleLineTextReportNoLineEnding()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+
+        Assert.Equal("N/A", document.LineEndingStatusText);
+
+        document.SetMarkdownFromEditor("# Title");
+
+        Assert.Equal("N/A", document.LineEndingStatusText);
+    }
+
+    [Fact]
+    public void Load_CleanDocumentDoesNotPublishDirtyTitle()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+        var titleChanges = new List<string>();
+        document.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(DocumentViewModel.DocumentTitle))
+            {
+                titleChanges.Add(document.DocumentTitle);
+            }
+        };
+
+        document.Load("sample.md", "# Title\r\n");
+
+        Assert.False(document.IsDirty);
+        Assert.Equal("sample.md", document.DocumentTitle);
+        Assert.DoesNotContain("* sample.md", titleChanges);
+    }
+
+    [Fact]
     public void MarkSaved_PublishesCleanDocumentTitle()
     {
         var document = new DocumentViewModel(new PassthroughFormatter());
@@ -54,11 +86,13 @@ public sealed class EditorWorkflowTests
 
         Assert.Equal("* sample.md", document.DocumentTitle);
 
+        titleChanges.Clear();
         document.MarkSaved("sample.md");
 
         Assert.False(document.IsDirty);
         Assert.Equal("sample.md", document.DocumentTitle);
         Assert.Contains("sample.md", titleChanges);
+        Assert.DoesNotContain("* sample.md", titleChanges);
     }
 
     [Fact]
@@ -87,6 +121,43 @@ public sealed class EditorWorkflowTests
         Assert.Equal(2, root.Children.Count);
         Assert.Equal("Child", root.Children[0].Title);
         Assert.Equal("Peer", root.Children[1].Title);
+    }
+
+    [Fact]
+    public void Outline_DoesNotCloseFenceWhenFenceCharactersHaveTrailingContent()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+
+        document.SetMarkdownFromEditor("""
+            # Root
+
+            ```
+            ````extra
+            # Not a heading
+            ```
+
+            ## Peer
+            """);
+
+        Assert.True(
+            SpinWait.SpinUntil(() => document.HeadingNodes.Count > 0, TimeSpan.FromSeconds(1)),
+            "Heading parse did not complete.");
+
+        HeadingNode root = Assert.Single(document.HeadingNodes);
+        HeadingNode child = Assert.Single(root.Children);
+        Assert.Equal("Peer", child.Title);
+    }
+
+    [Fact]
+    public void ToggleOutlineVisibility_TogglesViewModelState()
+    {
+        var document = new DocumentViewModel(new PassthroughFormatter());
+
+        document.ToggleOutlineVisibility();
+        Assert.True(document.IsOutlineVisible);
+
+        document.ToggleOutlineVisibility();
+        Assert.False(document.IsOutlineVisible);
     }
 
     [Fact]
@@ -171,6 +242,32 @@ public sealed class EditorWorkflowTests
     }
 
     [Fact]
+    public void CloseTab_KeepsActiveTabWhenClosingBackgroundTab()
+    {
+        var shell = new ShellViewModel(
+            new DocumentServiceProvider(),
+            new FakeFilePickerService(),
+            new FakeApplicationService(),
+            new FakeUnsavedChangesPromptService(shouldConfirm: true));
+
+        DocumentViewModel first = shell.ActiveTab!;
+        shell.NewTab();
+        DocumentViewModel second = shell.ActiveTab!;
+        shell.NewTab();
+        DocumentViewModel third = shell.ActiveTab!;
+        shell.NewTab();
+        DocumentViewModel fourth = shell.ActiveTab!;
+
+        shell.CloseTab(second);
+
+        Assert.DoesNotContain(second, shell.Tabs);
+        Assert.Equal(3, shell.Tabs.Count);
+        Assert.Same(fourth, shell.ActiveTab);
+        Assert.Contains(first, shell.Tabs);
+        Assert.Contains(third, shell.Tabs);
+    }
+
+    [Fact]
     public void CloseAllSaved_LeavesDirtyTabsOpen()
     {
         var shell = new ShellViewModel(
@@ -233,9 +330,10 @@ public sealed class EditorWorkflowTests
     {
         public bool DidExit { get; private set; }
 
-        public void Exit()
+        public Task ExitAsync()
         {
             DidExit = true;
+            return Task.CompletedTask;
         }
     }
 

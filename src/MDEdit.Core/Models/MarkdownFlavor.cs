@@ -9,6 +9,8 @@ public enum MarkdownFlavor
     MultiMarkdown,
 }
 
+public sealed record MarkdownFlavorOption(MarkdownFlavor Flavor, string DisplayName);
+
 public static class MarkdownFlavorCatalog
 {
     public static IReadOnlyList<MarkdownFlavor> All { get; } =
@@ -20,6 +22,9 @@ public static class MarkdownFlavorCatalog
         MarkdownFlavor.MultiMarkdown,
     ];
 
+    public static IReadOnlyList<MarkdownFlavorOption> Options { get; } =
+        All.Select(flavor => new MarkdownFlavorOption(flavor, DisplayName(flavor))).ToArray();
+
     public static string DisplayName(MarkdownFlavor flavor) => flavor switch
     {
         MarkdownFlavor.CommonMark => "CommonMark",
@@ -29,4 +34,8 @@ public static class MarkdownFlavorCatalog
         MarkdownFlavor.MultiMarkdown => "MultiMarkdown",
         _ => flavor.ToString(),
     };
+
+    public static MarkdownFlavorOption OptionFor(MarkdownFlavor flavor) =>
+        Options.FirstOrDefault(option => option.Flavor == flavor)
+        ?? new MarkdownFlavorOption(flavor, DisplayName(flavor));
 }

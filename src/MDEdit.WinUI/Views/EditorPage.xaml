@@ -36,7 +36,7 @@
             Background="{ThemeResource LayerFillColorDefaultBrush}"
             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
             BorderThickness="0,0,1,0"
-            Visibility="Collapsed">
+            Visibility="{x:Bind ViewModel.IsOutlineVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -71,7 +71,7 @@
             Grid.Column="1"
             Width="1"
             Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-            Visibility="{Binding Visibility, ElementName=OutlinePane}" />
+            Visibility="{x:Bind ViewModel.IsOutlineVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
 
         <Grid Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
             <Grid
@@ -112,7 +112,11 @@
                         HorizontalAlignment="Stretch"
                         VerticalAlignment="Top"
                         Background="#203D7BD9"
-                        IsHitTestVisible="False" />
+                        IsHitTestVisible="False">
+                        <Border.RenderTransform>
+                            <TranslateTransform x:Name="CurrentLineHighlightTransform" />
+                        </Border.RenderTransform>
+                    </Border>
 
                     <TextBox
                         x:Name="RawMarkdownTextBox"
@@ -150,7 +154,7 @@
                 VerticalScrollBarVisibility="Auto"
                 Visibility="{x:Bind ViewModel.IsPreviewVisible, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}">
                 <controls:MarkdownTextBlock
-                    Text="{x:Bind ViewModel.RenderedMarkdown, Mode=OneWay}"
+                    Text="{x:Bind ViewModel.PreviewMarkdown, Mode=OneWay}"
                     FontSize="15"
                     TextWrapping="Wrap" />
             </ScrollViewer>
@@ -191,8 +195,9 @@
                     Width="190"
                     Height="28"
                     Padding="8,0"
-                    ItemsSource="{x:Bind ViewModel.AvailableFlavors}"
-                    SelectedItem="{x:Bind ViewModel.Flavor, Mode=TwoWay}" />
+                    DisplayMemberPath="DisplayName"
+                    ItemsSource="{x:Bind ViewModel.AvailableFlavorOptions}"
+                    SelectedItem="{x:Bind ViewModel.SelectedFlavorOption, Mode=TwoWay}" />
 
                 <StackPanel
                     Grid.Column="2"

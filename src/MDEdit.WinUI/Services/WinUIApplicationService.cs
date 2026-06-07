@@ -4,8 +4,10 @@ namespace MDEdit.WinUI.Services;
 
 public sealed class WinUIApplicationService : IApplicationService
 {
-    public void Exit()
+    public Task ExitAsync()
     {
-        (Microsoft.UI.Xaml.Application.Current as App)?.CloseMainWindowWithoutPrompt();
+        return Microsoft.UI.Xaml.Application.Current is App app
+            ? app.CloseMainWindowWithoutPromptAsync()
+            : Task.CompletedTask;
     }
 }

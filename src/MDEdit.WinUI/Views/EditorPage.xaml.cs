@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using MDEdit.Application.ViewModels;
 using MDEdit.Core.Models;
+using MDEdit.Core.Utilities;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -14,6 +15,7 @@ public sealed partial class EditorPage : Page
     private bool _syncingFromViewModel;
     private bool _editingViewModel;
     private bool _reflowRadioButtonsReady;
+    private bool _currentLineHighlightUpdateQueued;
     private ScrollViewer? _editorScrollViewer;
     private int _lineNumberCount;
 
@@ -64,7 +66,9 @@ public sealed partial class EditorPage : Page
             return;
         }
 
-        if (RawMarkdownTextBox.Text == ViewModel.RawMarkdown)
+        string normalizedTextBoxText =
+            MarkdownTextUtilities.NormalizeLineEndingsToCrlf(RawMarkdownTextBox.Text);
+        if (normalizedTextBoxText == ViewModel.RawMarkdown)
         {
             SyncEditorChrome();
             return;
@@ -116,18 +120,10 @@ public sealed partial class EditorPage : Page
             return;
         }
 
-        string editorText = RawMarkdownTextBox.Text;
-        int selectionStart = RawMarkdownTextBox.SelectionStart;
-        int selectionLength = RawMarkdownTextBox.SelectionLength;
-
         _editingViewModel = true;
         try
         {
-            ViewModel.SetMarkdownFromEditor(editorText);
-            if (ViewModel.RawMarkdown != editorText)
-            {
-                SyncTextBoxToNormalizedText(editorText, selectionStart, selectionLength);
-            }
+            ViewModel.SetMarkdownFromEditor(RawMarkdownTextBox.Text);
         }
         finally
         {
@@ -183,16 +179,23 @@ public sealed partial class EditorPage : Page
         string updated = current[..position] + content + current[position..];
 
         _syncingFromViewModel = true;
-        RawMarkdownTextBox.Text = updated;
-        RawMarkdownTextBox.SelectionStart = position + content.Length;
-        RawMarkdownTextBox.SelectionLength = 0;
-        _syncingFromViewModel = false;
+        try
+        {
+            RawMarkdownTextBox.Text = updated;
+            RawMarkdownTextBox.SelectionStart = position + content.Length;
+            RawMarkdownTextBox.SelectionLength = 0;
+        }
+        finally
+        {
+            _syncingFromViewModel = false;
+        }
 
         _editingViewModel = true;
         try
         {
             ViewModel.SetMarkdownFromEditor(updated);
-            if (ViewModel.RawMarkdown != updated)
+            string normalizedUpdated = MarkdownTextUtilities.NormalizeLineEndingsToCrlf(updated);
+            if (ViewModel.RawMarkdown != normalizedUpdated)
             {
                 SyncTextBoxToNormalizedText(updated, position + content.Length, 0);
             }
@@ -224,9 +227,7 @@ public sealed partial class EditorPage : Page
 
     public void ToggleOutlinePane()
     {
-        OutlinePane.Visibility = OutlinePane.Visibility == Visibility.Visible
-            ? Visibility.Collapsed
-            : Visibility.Visible;
+        ViewModel.ToggleOutlineVisibility();
     }
 
     private void HeadingTreeView_SelectionChanged(TreeView sender, TreeViewSelectionChangedEventArgs args)
@@ -234,6 +235,7 @@ public sealed partial class EditorPage : Page
         if (TryGetHeadingNode(sender.SelectedItem, out HeadingNode? heading) && heading is not null)
         {
             NavigateToHeading(heading);
+            sender.SelectedItem = null;
         }
     }
 
@@ -260,21 +262,27 @@ public sealed partial class EditorPage : Page
         int selectionStart,
         int selectionLength)
     {
-        int normalizedStart = NormalizeLineEndingsToCrlf(
+        int normalizedStart = MarkdownTextUtilities.NormalizeLineEndingsToCrlf(
             originalText[..Math.Clamp(selectionStart, 0, originalText.Length)]).Length;
-        int normalizedEnd = NormalizeLineEndingsToCrlf(
+        int normalizedEnd = MarkdownTextUtilities.NormalizeLineEndingsToCrlf(
             originalText[..Math.Clamp(selectionStart + selectionLength, 0, originalText.Length)]).Length;
 
         _syncingFromViewModel = true;
-        RawMarkdownTextBox.Text = ViewModel.RawMarkdown;
-        RawMarkdownTextBox.SelectionStart = Math.Clamp(normalizedStart, 0, RawMarkdownTextBox.Text.Length);
-        RawMarkdownTextBox.SelectionLength = Math.Max(0, normalizedEnd - normalizedStart);
-        _syncingFromViewModel = false;
+        try
+        {
+            RawMarkdownTextBox.Text = ViewModel.RawMarkdown;
+            RawMarkdownTextBox.SelectionStart = Math.Clamp(normalizedStart, 0, RawMarkdownTextBox.Text.Length);
+            RawMarkdownTextBox.SelectionLength = Math.Max(0, normalizedEnd - normalizedStart);
+        }
+        finally
+        {
+            _syncingFromViewModel = false;
+        }
     }
 
     private void UpdateLineNumbers()
     {
-        int lineCount = CountLines(RawMarkdownTextBox.Text);
+        int lineCount = MarkdownTextUtilities.CountLines(RawMarkdownTextBox.Text);
         if (lineCount == _lineNumberCount)
         {
             return;
@@ -311,6 +319,24 @@ public sealed partial class EditorPage : Page
 
     private void UpdateCurrentLineHighlight()
     {
+        if (_currentLineHighlightUpdateQueued)
+        {
+            return;
+        }
+
+        _currentLineHighlightUpdateQueued = true;
+        if (!DispatcherQueue.TryEnqueue(() =>
+        {
+            _currentLineHighlightUpdateQueued = false;
+            UpdateCurrentLineHighlightCore();
+        }))
+        {
+            _currentLineHighlightUpdateQueued = false;
+        }
+    }
+
+    private void UpdateCurrentLineHighlightCore()
+    {
         if (EditorSurface.Visibility != Visibility.Visible || RawMarkdownTextBox.ActualHeight <= 0)
         {
             CurrentLineHighlight.Visibility = Visibility.Collapsed;
@@ -323,6 +349,11 @@ public sealed partial class EditorPage : Page
             caretRect = GetCaretRect();
         }
         catch (ArgumentException)
+        {
+            CurrentLineHighlight.Visibility = Visibility.Collapsed;
+            return;
+        }
+        catch (InvalidOperationException)
         {
             CurrentLineHighlight.Visibility = Visibility.Collapsed;
             return;
@@ -343,7 +374,7 @@ public sealed partial class EditorPage : Page
             return;
         }
 
-        CurrentLineHighlight.Margin = new Thickness(0, top, 0, 0);
+        CurrentLineHighlightTransform.Y = top;
         CurrentLineHighlight.Height = Math.Max(20, caretRect.Height + 2);
         CurrentLineHighlight.Visibility = Visibility.Visible;
     }
@@ -383,41 +414,6 @@ public sealed partial class EditorPage : Page
         }
 
         return null;
-    }
-
-    private static int CountLines(string text)
-    {
-        if (text.Length == 0)
-        {
-            return 1;
-        }
-
-        int count = 1;
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (text[i] == '\r')
-            {
-                count++;
-                if (i + 1 < text.Length && text[i + 1] == '\n')
-                {
-                    i++;
-                }
-            }
-            else if (text[i] == '\n')
-            {
-                count++;
-            }
-        }
-
-        return count;
-    }
-
-    private static string NormalizeLineEndingsToCrlf(string text)
-    {
-        return text
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Replace("\n", "\r\n", StringComparison.Ordinal);
     }
 
     private static bool TryGetHeadingNode(object? item, out HeadingNode? heading)

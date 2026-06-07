@@ -1,5 +1,6 @@
 using Markdig;
 using Markdig.Extensions.AutoIdentifiers;
+using Markdig.Extensions.EmphasisExtras;
 using Markdig.Renderers.Normalize;
 using Markdig.Syntax;
 using MDEdit.Core.Interfaces;
@@ -10,6 +11,13 @@ namespace MDEdit.Infrastructure.Services;
 
 public sealed class MarkdownFormattingService : IMarkdownFormattingService
 {
+    private static readonly MarkdownPipeline CommonMarkPipeline = new MarkdownPipelineBuilder().Build();
+    private static readonly MarkdownPipeline GitHubFlavoredPipeline = BuildGitHubFlavoredPipeline();
+    private static readonly MarkdownPipeline MarkdigAdvancedPipeline =
+        new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+    private static readonly MarkdownPipeline PandocMarkdownPipeline = BuildPandocMarkdownPipeline();
+    private static readonly MarkdownPipeline MultiMarkdownPipeline = BuildMultiMarkdownPipeline();
+
     public string Format(string rawMarkdown, MarkdownFlavor flavor)
     {
         ArgumentNullException.ThrowIfNull(rawMarkdown);
@@ -42,25 +50,62 @@ public sealed class MarkdownFormattingService : IMarkdownFormattingService
         MarkdownPipeline pipeline = CreatePipeline(flavor);
         MarkdownDocument document = Markdig.Markdown.Parse(parts.Body, pipeline);
         IReadOnlyList<HeadingChange> changes = NormalizeHeadingHierarchy(document, topHeadingLevel);
+        int changedHeadingCount = changes.Count(change => change.OriginalLevel != change.NormalizedLevel);
         RemoveSyntheticHeadingDefinitions(document);
 
         string markdown = ReattachFrontMatter(parts.FrontMatter, RenderNormalized(document, pipeline));
-        IReadOnlyList<string> warnings = BuildReflowWarnings(rawMarkdown, changes);
+        IReadOnlyList<string> warnings = BuildReflowWarnings(rawMarkdown, changes, changedHeadingCount);
 
         return new MarkdownReflowResult(
             markdown,
-            changes.Count(change => change.OriginalLevel != change.NormalizedLevel),
+            changedHeadingCount,
             warnings);
     }
 
-    private static MarkdownPipeline CreatePipeline(MarkdownFlavor flavor)
+    private static MarkdownPipeline CreatePipeline(MarkdownFlavor flavor) => flavor switch
     {
-        var builder = new MarkdownPipelineBuilder();
+        MarkdownFlavor.CommonMark => CommonMarkPipeline,
+        MarkdownFlavor.GitHubFlavored => GitHubFlavoredPipeline,
+        MarkdownFlavor.MarkdigAdvanced => MarkdigAdvancedPipeline,
+        MarkdownFlavor.PandocMarkdown => PandocMarkdownPipeline,
+        MarkdownFlavor.MultiMarkdown => MultiMarkdownPipeline,
+        _ => MarkdigAdvancedPipeline,
+    };
 
-        return flavor == MarkdownFlavor.CommonMark
-            ? builder.Build()
-            : builder.UseAdvancedExtensions().Build();
-    }
+    private static MarkdownPipeline BuildGitHubFlavoredPipeline() =>
+        new MarkdownPipelineBuilder()
+            .UsePipeTables()
+            .UseTaskLists()
+            .UseAutoLinks()
+            .UseAutoIdentifiers(AutoIdentifierOptions.GitHub)
+            .UseEmphasisExtras(EmphasisExtraOptions.Strikethrough)
+            .Build();
+
+    private static MarkdownPipeline BuildPandocMarkdownPipeline() =>
+        new MarkdownPipelineBuilder()
+            .UseYamlFrontMatter()
+            .UsePipeTables()
+            .UseGridTables()
+            .UseDefinitionLists()
+            .UseFootnotes()
+            .UseCitations()
+            .UseMathematics()
+            .UseAutoIdentifiers(AutoIdentifierOptions.Default)
+            .UseSmartyPants()
+            .Build();
+
+    private static MarkdownPipeline BuildMultiMarkdownPipeline() =>
+        new MarkdownPipelineBuilder()
+            .UsePipeTables()
+            .UseGridTables()
+            .UseDefinitionLists()
+            .UseFootnotes()
+            .UseCitations()
+            .UseAbbreviations()
+            .UseGenericAttributes()
+            .UseAutoIdentifiers(AutoIdentifierOptions.Default)
+            .UseEmphasisExtras(EmphasisExtraOptions.Default)
+            .Build();
 
     private static MarkdownParts SplitFrontMatter(string markdown)
     {
@@ -175,16 +220,16 @@ public sealed class MarkdownFormattingService : IMarkdownFormattingService
 
     private static IReadOnlyList<string> BuildReflowWarnings(
         string rawMarkdown,
-        IReadOnlyList<HeadingChange> changes)
+        IReadOnlyList<HeadingChange> changes,
+        int changedHeadingCount)
     {
         var warnings = new List<string>();
-        int changed = changes.Count(change => change.OriginalLevel != change.NormalizedLevel);
 
         if (changes.Count == 0)
         {
             warnings.Add("No Markdown headings were found.");
         }
-        else if (changed > 0)
+        else if (changedHeadingCount > 0)
         {
             warnings.Add("Review hand-written tables of contents, outline prose, and links that describe heading levels.");
         }

@@ -10,6 +10,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using System.Diagnostics;
 using System.Threading;
 using WinRT.Interop;
 
@@ -19,6 +20,8 @@ public partial class App : Microsoft.UI.Xaml.Application
 {
     private bool _allowMainWindowClose;
     private bool _isHandlingMainWindowClose;
+    private bool _isHostStarted;
+    private bool _isHostStopped;
 
     public Window? MainWindow { get; private set; }
     public IHost Host { get; }
@@ -36,16 +39,24 @@ public partial class App : Microsoft.UI.Xaml.Application
                 services.AddSingleton<IUnsavedChangesPromptService, WinUIUnsavedChangesPromptService>();
                 services.AddTransient<DocumentViewModel>();
                 services.AddSingleton<ShellViewModel>();
-                services.AddTransient<ShellPage>();
             })
             .Build();
     }
 
-    protected override void OnLaunched(LaunchActivatedEventArgs args)
+    protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
         SynchronizationContext.SetSynchronizationContext(
             new DispatcherQueueSynchronizationContext(dispatcherQueue));
+
+        try
+        {
+            await StartHostAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Host start failed: {ex.Message}");
+        }
 
         MainWindow = new Window { Title = "MDEdit" };
 
@@ -79,8 +90,9 @@ public partial class App : Microsoft.UI.Xaml.Application
         return File.Exists(trimmed) ? trimmed : null;
     }
 
-    public void CloseMainWindowWithoutPrompt()
+    public async Task CloseMainWindowWithoutPromptAsync()
     {
+        await StopHostBeforeCloseAsync();
         _allowMainWindowClose = true;
         MainWindow?.Close();
     }
@@ -88,12 +100,6 @@ public partial class App : Microsoft.UI.Xaml.Application
     private async void MainWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (_allowMainWindowClose)
-        {
-            return;
-        }
-
-        ShellViewModel shellViewModel = Host.Services.GetRequiredService<ShellViewModel>();
-        if (!shellViewModel.HasUnsavedChanges)
         {
             return;
         }
@@ -107,15 +113,55 @@ public partial class App : Microsoft.UI.Xaml.Application
         _isHandlingMainWindowClose = true;
         try
         {
-            if (await shellViewModel.ConfirmCloseAsync())
+            ShellViewModel shellViewModel = Host.Services.GetRequiredService<ShellViewModel>();
+            if (!shellViewModel.HasUnsavedChanges || await shellViewModel.ConfirmCloseAsync())
             {
-                CloseMainWindowWithoutPrompt();
+                await CloseMainWindowWithoutPromptAsync();
             }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Close confirmation failed: {ex.Message}");
         }
         finally
         {
             _isHandlingMainWindowClose = false;
         }
+    }
+
+    private async Task StartHostAsync()
+    {
+        if (_isHostStarted)
+        {
+            return;
+        }
+
+        await Host.StartAsync();
+        _isHostStarted = true;
+        _isHostStopped = false;
+    }
+
+    private async Task StopHostBeforeCloseAsync()
+    {
+        try
+        {
+            await StopHostAsync();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Host stop failed: {ex.Message}");
+        }
+    }
+
+    private async Task StopHostAsync()
+    {
+        if (!_isHostStarted || _isHostStopped)
+        {
+            return;
+        }
+
+        await Host.StopAsync();
+        _isHostStopped = true;
     }
 
     private static AppWindow GetAppWindow(Window window)

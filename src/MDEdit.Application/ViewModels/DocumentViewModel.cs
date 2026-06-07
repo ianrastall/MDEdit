@@ -4,15 +4,16 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using MDEdit.Core.Interfaces;
 using MDEdit.Core.Models;
+using MDEdit.Core.Utilities;
 
 namespace MDEdit.Application.ViewModels;
 
 public partial class DocumentViewModel : ObservableObject
 {
-    private const string Crlf = "\r\n";
     private const int HeadingParseDebounceMilliseconds = 400;
     private readonly IMarkdownFormattingService _formatter;
     private bool _normalizingRawMarkdown;
+    private bool _suppressRawMarkdownChangedSideEffects;
     private CancellationTokenSource? _headingParseDebounceCts;
 
     [ObservableProperty]
@@ -20,7 +21,7 @@ public partial class DocumentViewModel : ObservableObject
     private DocumentContext _document = new();
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(RenderedMarkdown))]
+    [NotifyPropertyChangedFor(nameof(PreviewMarkdown))]
     [NotifyPropertyChangedFor(nameof(CharacterCount))]
     [NotifyPropertyChangedFor(nameof(LineCount))]
     [NotifyPropertyChangedFor(nameof(DocumentStatisticsText))]
@@ -28,12 +29,16 @@ public partial class DocumentViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FlavorDisplayName))]
+    [NotifyPropertyChangedFor(nameof(SelectedFlavorOption))]
     private MarkdownFlavor _flavor = MarkdownFlavor.GitHubFlavored;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEditorVisible))]
     [NotifyPropertyChangedFor(nameof(IsPreviewVisible))]
     private bool _isPreviewMode;
+
+    [ObservableProperty]
+    private bool _isOutlineVisible;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DocumentTitle))]
@@ -51,12 +56,12 @@ public partial class DocumentViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LineEndingStatusText))]
     [NotifyPropertyChangedFor(nameof(DocumentStatisticsText))]
-    private string _sourceLineEndingDisplayName = "CRLF";
+    private string _sourceLineEndingDisplayName = "N/A";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LineEndingStatusText))]
     [NotifyPropertyChangedFor(nameof(DocumentStatisticsText))]
-    private string _lineEndingDisplayName = "CRLF";
+    private string _lineEndingDisplayName = "N/A";
 
     public DocumentViewModel(IMarkdownFormattingService formatter)
     {
@@ -65,8 +70,21 @@ public partial class DocumentViewModel : ObservableObject
     }
 
     public IReadOnlyList<MarkdownFlavor> AvailableFlavors => MarkdownFlavorCatalog.All;
+    public IReadOnlyList<MarkdownFlavorOption> AvailableFlavorOptions => MarkdownFlavorCatalog.Options;
+    public MarkdownFlavorOption SelectedFlavorOption
+    {
+        get => MarkdownFlavorCatalog.OptionFor(Flavor);
+        set
+        {
+            if (value is not null)
+            {
+                Flavor = value.Flavor;
+            }
+        }
+    }
+
     public string DocumentTitle => IsDirty ? "* " + Document.DocumentTitle : Document.DocumentTitle;
-    public string RenderedMarkdown => RawMarkdown;
+    public string PreviewMarkdown => RawMarkdown;
     public string FlavorDisplayName => MarkdownFlavorCatalog.DisplayName(Flavor);
     public string EncodingDisplayName => "UTF-8";
     public string LineEndingStatusText => SourceLineEndingDisplayName == LineEndingDisplayName
@@ -75,27 +93,20 @@ public partial class DocumentViewModel : ObservableObject
     public bool IsEditorVisible => !IsPreviewMode;
     public bool IsPreviewVisible => IsPreviewMode;
     public int CharacterCount => RawMarkdown.Length;
-    public int LineCount => CountLines(RawMarkdown);
+    public int LineCount => MarkdownTextUtilities.CountLines(RawMarkdown);
     public string DocumentStatisticsText =>
         $"{LineCount:N0} lines  |  {CharacterCount:N0} chars  |  {EncodingDisplayName}  |  EOL {LineEndingStatusText}  |  {FlavorDisplayName}";
 
     public void Load(string filePath, string markdown)
     {
         string sourceLineEnding = DetectLineEndingDisplayName(markdown);
-        string normalizedMarkdown = NormalizeLineEndingsToCrlf(markdown);
+        string normalizedMarkdown = MarkdownTextUtilities.NormalizeLineEndingsToCrlf(markdown);
         bool normalizedLineEndings = normalizedMarkdown != markdown;
 
         SourceLineEndingDisplayName = sourceLineEnding;
         LineEndingDisplayName = DetectLineEndingDisplayName(normalizedMarkdown);
-
-        Document = new DocumentContext
-        {
-            FilePath = filePath,
-            RawMarkdown = normalizedMarkdown,
-            Flavor = Flavor,
-        };
-
-        RawMarkdown = normalizedMarkdown;
+        SetRawMarkdownWithoutChangeTracking(normalizedMarkdown);
+        SetDocument(filePath, normalizedMarkdown, Flavor);
         IsDirty = normalizedLineEndings;
         StatusMessage = normalizedLineEndings
             ? $"Opened {Path.GetFileName(filePath)}; normalized EOL {sourceLineEnding} to CRLF."
@@ -105,25 +116,18 @@ public partial class DocumentViewModel : ObservableObject
 
     public void MarkSaved(string filePath)
     {
-        string normalizedMarkdown = NormalizeLineEndingsToCrlf(RawMarkdown);
+        string normalizedMarkdown = MarkdownTextUtilities.NormalizeLineEndingsToCrlf(RawMarkdown);
 
         if (RawMarkdown != normalizedMarkdown)
         {
-            RawMarkdown = normalizedMarkdown;
+            SetRawMarkdownWithoutChangeTracking(normalizedMarkdown);
+            LineEndingDisplayName = DetectLineEndingDisplayName(normalizedMarkdown);
         }
 
         SourceLineEndingDisplayName = LineEndingDisplayName;
         IsDirty = false;
-
-        Document = new DocumentContext
-        {
-            FilePath = filePath,
-            RawMarkdown = normalizedMarkdown,
-            Flavor = Flavor,
-        };
-
+        SetDocument(filePath, normalizedMarkdown, Flavor);
         StatusMessage = $"Saved {Path.GetFileName(filePath)}.";
-        OnPropertyChanged(nameof(DocumentTitle));
     }
 
     public void SetMarkdownFromEditor(string markdown)
@@ -146,7 +150,7 @@ public partial class DocumentViewModel : ObservableObject
         string existingMarkdown = RawMarkdown.TrimEnd();
         RawMarkdown = string.IsNullOrEmpty(existingMarkdown)
             ? content
-            : $"{existingMarkdown}{Crlf}{Crlf}{content}";
+            : $"{existingMarkdown}{MarkdownTextUtilities.Crlf}{MarkdownTextUtilities.Crlf}{content}";
         StatusMessage = "Content appended.";
     }
 
@@ -154,6 +158,11 @@ public partial class DocumentViewModel : ObservableObject
     {
         ReflowTopHeadingLevel = HeadingLevelOption.FromLevel(topHeadingLevel);
         ReflowCommand.Execute(null);
+    }
+
+    public void ToggleOutlineVisibility()
+    {
+        IsOutlineVisible = !IsOutlineVisible;
     }
 
     [RelayCommand]
@@ -222,44 +231,43 @@ public partial class DocumentViewModel : ObservableObject
     {
         if (!_normalizingRawMarkdown)
         {
-            string normalized = NormalizeLineEndingsToCrlf(value);
+            string normalized = MarkdownTextUtilities.NormalizeLineEndingsToCrlf(value);
             if (normalized != value)
             {
                 _normalizingRawMarkdown = true;
-                RawMarkdown = normalized;
-                _normalizingRawMarkdown = false;
+                try
+                {
+                    RawMarkdown = normalized;
+                }
+                finally
+                {
+                    _normalizingRawMarkdown = false;
+                }
                 return;
             }
         }
 
-        LineEndingDisplayName = DetectLineEndingDisplayName(value);
-        Document = new DocumentContext
+        if (_suppressRawMarkdownChangedSideEffects)
         {
-            FilePath = Document.FilePath,
-            RawMarkdown = value,
-            Flavor = Flavor,
-        };
+            return;
+        }
 
+        LineEndingDisplayName = DetectLineEndingDisplayName(value);
+        SetDocument(Document.FilePath, value, Flavor);
         IsDirty = true;
         QueueHeadingParse(value);
     }
 
     partial void OnFlavorChanged(MarkdownFlavor value)
     {
-        Document = new DocumentContext
-        {
-            FilePath = Document.FilePath,
-            RawMarkdown = RawMarkdown,
-            Flavor = value,
-        };
-
+        SetDocument(Document.FilePath, RawMarkdown, value);
         OnPropertyChanged(nameof(DocumentStatisticsText));
     }
 
     private void RefreshDocumentState()
     {
         OnPropertyChanged(nameof(DocumentTitle));
-        OnPropertyChanged(nameof(RenderedMarkdown));
+        OnPropertyChanged(nameof(PreviewMarkdown));
         OnPropertyChanged(nameof(CharacterCount));
         OnPropertyChanged(nameof(LineCount));
         OnPropertyChanged(nameof(LineEndingStatusText));
@@ -302,6 +310,36 @@ public partial class DocumentViewModel : ObservableObject
     {
         _headingParseDebounceCts?.Cancel();
         ParseHeadings(markdown);
+    }
+
+    private void SetRawMarkdownWithoutChangeTracking(string markdown)
+    {
+        _suppressRawMarkdownChangedSideEffects = true;
+        try
+        {
+            RawMarkdown = markdown;
+        }
+        finally
+        {
+            _suppressRawMarkdownChangedSideEffects = false;
+        }
+    }
+
+    private void SetDocument(string? filePath, string rawMarkdown, MarkdownFlavor flavor)
+    {
+        if (Document.FilePath == filePath
+            && Document.RawMarkdown == rawMarkdown
+            && Document.Flavor == flavor)
+        {
+            return;
+        }
+
+        Document = new DocumentContext
+        {
+            FilePath = filePath,
+            RawMarkdown = rawMarkdown,
+            Flavor = flavor,
+        };
     }
 
     private string BuildReflowStatus(MarkdownReflowResult result)
@@ -416,36 +454,47 @@ public partial class DocumentViewModel : ObservableObject
     {
         if (fence is null)
         {
-            if (trimmedLine.StartsWith("```".AsSpan(), StringComparison.Ordinal))
+            int backtickFenceLength = CountFenceCharacters(trimmedLine, '`');
+            if (backtickFenceLength >= 3)
             {
-                fence = "```";
+                fence = new string('`', backtickFenceLength);
                 return true;
             }
 
-            if (trimmedLine.StartsWith("~~~".AsSpan(), StringComparison.Ordinal))
+            int tildeFenceLength = CountFenceCharacters(trimmedLine, '~');
+            if (tildeFenceLength >= 3)
             {
-                fence = "~~~";
+                fence = new string('~', tildeFenceLength);
                 return true;
             }
 
             return false;
         }
 
-        if (trimmedLine.StartsWith(fence.AsSpan(), StringComparison.Ordinal))
+        char fenceCharacter = fence[0];
+        int fenceLength = CountFenceCharacters(trimmedLine, fenceCharacter);
+        if (fenceLength >= fence.Length)
         {
-            fence = null;
-            return true;
+            ReadOnlySpan<char> rest = trimmedLine[fenceLength..];
+            if (rest.IsEmpty || rest.IsWhiteSpace())
+            {
+                fence = null;
+                return true;
+            }
         }
 
         return false;
     }
 
-    private static string NormalizeLineEndingsToCrlf(string text)
+    private static int CountFenceCharacters(ReadOnlySpan<char> line, char fenceCharacter)
     {
-        return text
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace('\r', '\n')
-            .Replace("\n", Crlf, StringComparison.Ordinal);
+        int count = 0;
+        while (count < line.Length && line[count] == fenceCharacter)
+        {
+            count++;
+        }
+
+        return count;
     }
 
     private static string DetectLineEndingDisplayName(string text)
@@ -495,6 +544,11 @@ public partial class DocumentViewModel : ObservableObject
             return "Mixed";
         }
 
+        if (crlfCount == 0 && lfCount == 0 && crCount == 0)
+        {
+            return "N/A";
+        }
+
         if (lfCount > 0)
         {
             return "LF";
@@ -510,8 +564,8 @@ public partial class DocumentViewModel : ObservableObject
 
     private static bool LooksSuspiciouslyCollapsed(string original, string formatted)
     {
-        int originalLines = CountLines(original);
-        int formattedLines = CountLines(formatted);
+        int originalLines = MarkdownTextUtilities.CountLines(original);
+        int formattedLines = MarkdownTextUtilities.CountLines(formatted);
         if (originalLines < 10 || formattedLines > Math.Max(3, originalLines / 4))
         {
             return false;
@@ -538,33 +592,6 @@ public partial class DocumentViewModel : ObservableObject
         }
 
         return Math.Max(longest, current);
-    }
-
-    private static int CountLines(string text)
-    {
-        if (text.Length == 0)
-        {
-            return 1;
-        }
-
-        int count = 1;
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (text[i] == '\r')
-            {
-                count++;
-                if (i + 1 < text.Length && text[i + 1] == '\n')
-                {
-                    i++;
-                }
-            }
-            else if (text[i] == '\n')
-            {
-                count++;
-            }
-        }
-
-        return count;
     }
 
     [GeneratedRegex(@"^\s{0,3}(#{1,6})(?:[ \t]+|$)(.*)$")]
